@@ -1,5 +1,5 @@
 import logging
-import os
+from os import getenv
 
 
 def get_logger(name: str):
@@ -14,7 +14,7 @@ def set_basic_log_config() -> None:
 
 
 def get_log_level() -> int:
-    log_level = os.getenv("LOG_LEVEL", "error")
+    log_level = getenv("LOG_LEVEL", "error")
     if log_level == "debug":
         return logging.DEBUG
     elif log_level == "info":
