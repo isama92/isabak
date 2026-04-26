@@ -82,7 +82,4 @@ def check_options(destination, services) -> bool:
         if not isinstance(service.get("name"), str):
             logger.error("services name is required")
             return False
-        if not isinstance(service.get("name"), str):
-            logger.error("services name is required")
-            return False
     return True

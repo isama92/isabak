@@ -120,6 +120,7 @@ def wait_backup_creation(folder: str) -> bool:
             logger.error("backup was not created in time")
             return False
         sleep(1)
+        loop_n += 1
 
 
 def copy_backup(folder: str, destination: str):

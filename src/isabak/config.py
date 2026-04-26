@@ -1,8 +1,6 @@
 from src.isabak.logs import get_logger
 from yaml import safe_load as yaml_load
 from os import getenv
-from os.path import exists as path_exists
-from dotenv import load_dotenv
 from os import makedirs
 from os.path import join as path_join
 from shutil import rmtree
@@ -11,16 +9,6 @@ logger = get_logger(__name__)
 
 app_name = "isabak"
 config_file_path = "config.yaml"
-env_file_path = ".env"
-
-
-def load_env() -> bool:
-    if not path_exists(env_file_path):
-        return False
-
-    load_dotenv(env_file_path)
-
-    return True
 
 
 def load_config() -> dict | None:
@@ -64,7 +52,6 @@ def get_base_destination(destination: str) -> str | None:
 
     try:
         rmtree(base_destination)
-        pass
     except Exception as e:
         logger.debug(f"could not remove existing backup destination folder ({e})")
 

@@ -33,12 +33,11 @@ The process must run on the Docker host (it shells out to `docker exec` / `docke
 
 Top-level `main.py` is a thin shim around `src.isabak.main:main`. The real pipeline (`src/isabak/main.py`) is strictly sequential:
 
-1. `load_env()` — reads `.env` from CWD if present.
-2. `set_basic_log_config()` — must be called *before* any other logger is used; submodules grab loggers at import time via `get_logger(__name__)`.
-3. `load_config()` — parses `config.yaml` from CWD; returns `None` and aborts on missing/empty/malformed file.
-4. `merge_config()` — overlays env onto YAML. Only `DOMAIN` and `DESTINATION` are merged here; everything else (DB credentials, borg passphrase, etc.) lives in YAML only.
-5. `services_backup(config)` runs if `services` key exists.
-6. `borg_transfer(config["borg"])` runs if `borg` key exists. Borg runs *after* services, so it can pick up the freshly-written backup tree.
+1. **Logging bootstrap is implicit** — `src/isabak/logs.py` loads `.env` (if present) and calls `logging.basicConfig` *at module import*, so by the time any other module's `logger = get_logger(__name__)` runs, the root logger is configured. There is no explicit setup call in `main()`. If you add a new top-level module, ensure it imports `logs.py` (directly or transitively) before any logging occurs.
+2. `load_config()` — parses `config.yaml` from CWD; returns `None` and aborts on missing/empty/malformed file.
+3. `merge_config()` — overlays env onto YAML. Only `DOMAIN` and `DESTINATION` are merged here; everything else (DB credentials, borg passphrase, etc.) lives in YAML only.
+4. `services_backup(config)` runs if `services` key exists.
+5. `borg_transfer(config["borg"])` runs if `borg` key exists. Borg runs *after* services, so it can pick up the freshly-written backup tree.
 
 ### Destination layout (destructive)
 
