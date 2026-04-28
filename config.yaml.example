@@ -12,6 +12,11 @@ services:
   - name: your_service
     fs:
       folder: "/home/user/your_service_files"
+      exclude:
+        - "/cache"
+        - "/logs"
+      include:
+        - "/keep_this_dir/***"
     mysql:
       db_name: "your_service_db"
     mariadb:

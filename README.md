@@ -53,6 +53,14 @@ A folder `isabak` will be created at the `destination` and backups will be added
 
 If omitted, borg default compression will be set to `none`.
 
+### `fs.include` / `fs.exclude`
+
+`fs.exclude` and `fs.include` accept a list of [rsync filter patterns](https://download.samba.org/pub/rsync/rsync.1#FILTER_RULES) anchored at `fs.folder`. A leading `/` anchors the pattern to the source root, otherwise it matches anywhere in the tree. Use `dir/***` to match a directory and everything under it recursively.
+
+- `exclude` only: rsync default behavior (everything is copied except matching paths).
+- `include` only: only matching paths are copied (a final `--exclude=*` is appended). Each parent directory must be listed explicitly, e.g. `["/foo/", "/foo/bar/", "/foo/bar/keep.txt"]`.
+- both: `exclude` patterns are evaluated first (so they take priority), then `include`, then the implicit `--exclude=*` from `include`.
+
 ## TODO
 
 ### Features
