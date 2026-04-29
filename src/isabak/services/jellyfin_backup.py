@@ -91,9 +91,13 @@ def delete_existing_backups(folder: str) -> bool:
 
 
 def create_backup(base_url: str, headers: dict, body: dict) -> bool:
-    response = requests.post(
-        f"{base_url}/Backup", json_dumps(body), headers=headers
-    )
+    try:
+        response = requests.post(
+            f"{base_url}/Backup", json_dumps(body), headers=headers, timeout=30
+        )
+    except requests.RequestException as e:
+        logger.error(f"backup creation request failed: {e}")
+        return False
 
     if response.status_code != 204:
         logger.error(f"backup creation request failed with code {response.status_code}")
@@ -114,10 +118,10 @@ def wait_backup_creation(folder: str) -> bool:
         loop_n += 1
 
     while True:
-        sizes_before = folder_sizes(folder)
+        size_before = folder_total_size(folder)
         sleep(1)
-        sizes_after = folder_sizes(folder)
-        if sizes_before == sizes_after:
+        size_after = folder_total_size(folder)
+        if size_before > 0 and size_before == size_after:
             return True
         if loop_n > 29:
             logger.error("backup file size did not stabilize in time")
@@ -125,14 +129,14 @@ def wait_backup_creation(folder: str) -> bool:
         loop_n += 1
 
 
-def folder_sizes(folder: str) -> dict:
-    sizes = {}
+def folder_total_size(folder: str) -> int:
+    total = 0
     for file in listdir(folder):
         src = path_join(folder, file)
         if not path_isfile(src):
             continue
-        sizes[file] = stat(src).st_size
-    return sizes
+        total += stat(src).st_size
+    return total
 
 
 def copy_backup(folder: str, destination: str):
