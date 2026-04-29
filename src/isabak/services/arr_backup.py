@@ -71,7 +71,13 @@ def build_headers(api_key: str) -> dict:
 
 
 def delete_existing_backups(base_url: str, headers: dict) -> bool:
-    response = requests.get(f"{base_url}/system/backup", headers=headers)
+    try:
+        response = requests.get(
+            f"{base_url}/system/backup", headers=headers, timeout=30
+        )
+    except requests.RequestException as e:
+        logger.error(f"backups list request failed: {e}")
+        return False
 
     if response.status_code != 200:
         logger.error(f"backups list request failed with code {response.status_code}")
@@ -86,9 +92,13 @@ def delete_existing_backups(base_url: str, headers: dict) -> bool:
         if backup_id is None:
             logger.error(f"backup did not contain the backup id")
             return False
-        response = requests.delete(
-            f"{base_url}/system/backup/{backup_id}", headers=headers
-        )
+        try:
+            response = requests.delete(
+                f"{base_url}/system/backup/{backup_id}", headers=headers, timeout=30
+            )
+        except requests.RequestException as e:
+            logger.error(f"deletion of backup '{backup_id}' failed: {e}")
+            return False
         if response.status_code != 200:
             logger.error(
                 f"deletion of backup '{backup_id}' failed with code {response.status_code}"
@@ -100,9 +110,16 @@ def delete_existing_backups(base_url: str, headers: dict) -> bool:
 
 
 def create_backup(base_url: str, headers: dict) -> bool:
-    response = requests.post(
-        f"{base_url}/command", json_dumps({"name": "Backup"}), headers=headers
-    )
+    try:
+        response = requests.post(
+            f"{base_url}/command",
+            json_dumps({"name": "Backup"}),
+            headers=headers,
+            timeout=30,
+        )
+    except requests.RequestException as e:
+        logger.error(f"backup creation request failed: {e}")
+        return False
 
     if response.status_code != 201:
         logger.error(f"backup creation request failed with code {response.status_code}")
