@@ -33,6 +33,16 @@ services:
       api_key: "api-key"
       folder: "/home/user/your_service_files/arr_generated_backups"
       secure: true
+    jellyfin:
+      subdomain: "jellyfin"
+      api_key: "api-key"
+      folder: "/home/user/your_service_files/jellyfin_generated_backups"
+      secure: true
+      options:
+        database: true
+        metadata: false
+        trickplay: false
+        subtitles: false
 borg:
   repository: "ssh://user@host:/"
   passphrase: "your-passphrase"

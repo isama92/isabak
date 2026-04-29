@@ -61,6 +61,20 @@ If omitted, borg default compression will be set to `none`.
 - `include` only: only matching paths are copied (a final `--exclude=*` is appended). Each parent directory must be listed explicitly, e.g. `["/foo/", "/foo/bar/", "/foo/bar/keep.txt"]`.
 - both: `exclude` patterns are evaluated first (so they take priority), then `include`, then the implicit `--exclude=*` from `include`.
 
+### `jellyfin`
+
+Drives Jellyfin's built-in backup feature (Jellyfin 10.10+) through the REST API to produce a crash-consistent zip — safer than `rsync`'ing the live SQLite DB.
+
+- `subdomain` (optional): combined with the top-level `domain` to build the base URL (e.g. `subdomain: "jellyfin"` + `domain: "example.com"` → `https://jellyfin.example.com`). Omit to use `domain` directly.
+- `api_key` (required): create one in Jellyfin Dashboard → API Keys.
+- `folder` (required): host-side path where Jellyfin writes backup zips. Maps to the container's `<DataPath>/backups/` (default `/config/data/backups/`).
+- `secure` (optional, default `true`): use `https`.
+- `options` (optional): which content categories to include in the zip. Defaults to DB only — `database: true`, all others `false`. Available toggles: `database`, `metadata`, `trickplay`, `subtitles`. The zip always contains system and user configuration; these flags only add the named content categories on top.
+
+**Deletion behavior**: Jellyfin has no built-in retention and no `DELETE` API for backups, so every isabak run wipes existing files in `folder` before triggering a new backup. Do not point `folder` at a directory that holds anything other than Jellyfin's own backup zips.
+
+You can use `fs` and `jellyfin` on the same service entry — `fs` covers everything outside the DB (settings, plugins, etc., with whatever excludes you set), `jellyfin` covers the DB consistently.
+
 ## TODO
 
 ### Features
