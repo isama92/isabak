@@ -93,13 +93,16 @@ def delete_existing_backups(folder: str) -> bool:
 def create_backup(base_url: str, headers: dict, body: dict) -> bool:
     try:
         response = requests.post(
-            f"{base_url}/Backup", json_dumps(body), headers=headers, timeout=30
+            f"{base_url}/Backup/Create",
+            json_dumps(body),
+            headers=headers,
+            timeout=30,
         )
     except requests.RequestException as e:
         logger.error(f"backup creation request failed: {e}")
         return False
 
-    if response.status_code != 204:
+    if response.status_code != 200:
         logger.error(f"backup creation request failed with code {response.status_code}")
         return False
 
