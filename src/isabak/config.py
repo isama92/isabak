@@ -2,9 +2,9 @@ from src.isabak.logs import get_logger
 from yaml import safe_load as yaml_load
 from json import load as json_load
 from os import getenv
-from os import chmod, makedirs, rename, stat
+from os import chmod, lstat, makedirs, rename, stat, walk
 from os.path import exists as path_exists, isdir as path_isdir, join as path_join
-from shutil import rmtree
+from shutil import disk_usage, rmtree
 
 logger = get_logger(__name__)
 
@@ -14,11 +14,15 @@ config_file_path = "config.yaml"
 manifest_name = "isabak-run.json"
 # the last complete tree, kept next to the new one until the next successful run
 last_good_suffix = ".last-good"
+# free space needed before a run: the last tree's size times this, for growth
+space_growth = 1.2
+bytes_per_gb = 1000**3
 
 top_level_keys = {
     "domain",
     "destination",
     "allow_destination_on_root_fs",
+    "min_free_gb",
     "mysql",
     "mariadb",
     "postgres",
@@ -106,7 +110,9 @@ def report_unknown_keys(prefix: str, section: dict, allowed: set[str]) -> bool:
     return not unknown
 
 
-def get_base_destination(destination: str, allow_root_fs: bool = False) -> str | None:
+def get_base_destination(
+    destination: str, allow_root_fs: bool = False, min_free_gb=None
+) -> str | None:
     # an unmounted disk leaves an empty mount point on the system disk
     if not path_isdir(destination):
         logger.error(
@@ -123,6 +129,11 @@ def get_base_destination(destination: str, allow_root_fs: bool = False) -> str |
         return None
 
     base_destination = path_join(destination, app_name)
+
+    # before anything is moved or deleted: a disk that fills up half-way leaves
+    # broken copies, a refused run leaves the old trees exactly as they were
+    if not check_free_space(destination, base_destination, min_free_gb):
+        return None
 
     try:
         keep_last_good(base_destination)
@@ -141,6 +152,50 @@ def get_base_destination(destination: str, allow_root_fs: bool = False) -> str |
         return None
 
     return base_destination
+
+
+def check_free_space(destination: str, base_destination: str, min_free_gb) -> bool:
+    if min_free_gb is not None and (
+        isinstance(min_free_gb, bool)
+        or not isinstance(min_free_gb, (int, float))
+        or min_free_gb < 0
+    ):
+        logger.error("min_free_gb must be a number of 0 or more")
+        return False
+
+    last_good = base_destination + last_good_suffix
+    previous = tree_size(base_destination)
+    kept = tree_size(last_good)
+    # the new tree will be about as big as the last one, plus some growth
+    needed = max(previous, kept) * space_growth
+    if min_free_gb is not None:
+        needed = max(needed, min_free_gb * bytes_per_gb)
+    # what keep_last_good() frees before the new tree is written
+    if previous_run_ok(base_destination):
+        reclaimed = kept
+    else:
+        reclaimed = previous
+    available = disk_usage(destination).free + reclaimed
+
+    if available < needed:
+        logger.error(
+            f"not enough free space on '{destination}': "
+            f"{available / bytes_per_gb:.1f} GB available, "
+            f"{needed / bytes_per_gb:.1f} GB needed"
+        )
+        return False
+    return True
+
+
+def tree_size(folder: str) -> int:
+    total = 0
+    for root, _, files in walk(folder):
+        for file in files:
+            try:
+                total += lstat(path_join(root, file)).st_size
+            except OSError:
+                continue
+    return total
 
 
 def keep_last_good(base_destination: str):

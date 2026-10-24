@@ -26,7 +26,9 @@ def services_backup(config: dict, report: RunReport) -> bool:
         return False
 
     base_destination = get_base_destination(
-        base_destination, config.get("allow_destination_on_root_fs") is True
+        base_destination,
+        config.get("allow_destination_on_root_fs") is True,
+        config.get("min_free_gb"),
     )
 
     if base_destination is None:

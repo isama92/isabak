@@ -1,6 +1,7 @@
 domain: "yourdomain.com"
 destination: "/home/user/backups"
 allow_destination_on_root_fs: false
+# min_free_gb: 20   # optional floor for the free-space check
 mysql:
   container: "mysql"
   username: "username"
