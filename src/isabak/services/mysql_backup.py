@@ -2,6 +2,7 @@ from os.path import join as path_join
 from os import makedirs, remove
 import subprocess
 from src.isabak.logs import get_logger
+from src.isabak.verify import mysql_dump_marker, verify_sql_gzip
 
 logger = get_logger(__name__)
 
@@ -76,6 +77,12 @@ def create_backup(db_name: str, db_container: str, destination: str):
     if gzip_rc != 0:
         remove(out_path)
         raise subprocess.CalledProcessError(gzip_rc, ["gzip"])
+
+    # exit code 0 does not prove the file is whole, read it back
+    verify_error = verify_sql_gzip(out_path, mysql_dump_marker)
+    if verify_error is not None:
+        remove(out_path)
+        raise ValueError(f"mysql.sql.gz {verify_error}")
 
 
 def check_options(

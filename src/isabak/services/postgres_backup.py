@@ -1,9 +1,10 @@
-from os import environ, makedirs, getuid, getgid
+from os import environ, makedirs, getuid, getgid, remove
 from os.path import join as path_join, exists as path_exists, realpath as path_realpath
 from shutil import move as shutil_move
 from shutil import rmtree as shutil_rmtree
 import subprocess
 from src.isabak.logs import get_logger
+from src.isabak.verify import postgres_dump_marker, verify_sql_gzip
 
 logger = get_logger(__name__)
 
@@ -48,6 +49,13 @@ def postgres_backup(service_name: str, service_options: dict, destination: str) 
 
     shutil_rmtree(tmp_folder)
     logger.debug("tmp folder removed")
+
+    # exit code 0 does not prove the file is whole, read it back
+    verify_error = verify_sql_gzip(backup_path_dest, postgres_dump_marker)
+    if verify_error is not None:
+        logger.error(f"{service_name} postgres dump {verify_error}")
+        remove(backup_path_dest)
+        return False
 
     logger.debug("postgres backup completed successfully")
     return True

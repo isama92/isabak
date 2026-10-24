@@ -53,6 +53,12 @@ MariaDB dump tool changed from mysqldump to mariadb-dump since mariadb 10.5, pri
 
 Do a run and **check all the backups are working**. Also check the content of gzipped files.
 
+Every artefact is read back after it is written, and a failed check fails that service:
+
+- MySQL, MariaDB and Postgres dumps are decompressed to the end (gzip CRC) and must end with the dump tool's own completion line (`-- Dump completed` for mysqldump and mariadb-dump, `-- PostgreSQL database dump complete` for pg_dump). A dump that was cut off is deleted.
+- *Arr and Jellyfin zips must open, contain at least one entry and pass a CRC check of every entry, which catches a zip copied while the app was still writing it.
+- `sqlite` copies must pass `PRAGMA integrity_check` (see below).
+
 A folder `isabak` will be created at the `destination` and backups will be added inside, the folder will be deleted and recreated each usage. It is created with mode `0700`, so only root can open it: the backups contain database dumps, API keys and password hashes. Use `sudo` to inspect them.
 
 If omitted, borg default compression will be set to `none`.

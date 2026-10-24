@@ -6,6 +6,7 @@ from os.path import isfile as path_isfile, join as path_join
 from shutil import copy2 as shutil_copy2
 from src.isabak.helpers import replace_env_vars
 from src.isabak.logs import get_logger
+from src.isabak.verify import verify_zip
 
 logger = get_logger(__name__)
 
@@ -171,6 +172,11 @@ def copy_backup(folder: str, files: list[str], destination: str) -> bool:
             shutil_copy2(src, dest)
             logger.debug(f"copied {src} to {dest}")
             copied += 1
+            # a zip copied while the app was still writing it fails here
+            verify_error = verify_zip(dest) if file.endswith(".zip") else None
+            if verify_error is not None:
+                logger.error(f"arr backup {file} {verify_error}")
+                return False
     except OSError as e:
         logger.exception(e, stack_info=True)
         return False

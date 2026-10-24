@@ -6,6 +6,7 @@ from os.path import isfile as path_isfile, join as path_join
 from shutil import copy2 as shutil_copy2
 from src.isabak.helpers import replace_env_vars
 from src.isabak.logs import get_logger
+from src.isabak.verify import verify_zip
 
 logger = get_logger(__name__)
 
@@ -46,7 +47,8 @@ def jellyfin_backup(
     if not wait_backup_creation(folder):
         return False
 
-    copy_backup(folder, destination)
+    if not copy_backup(folder, destination):
+        return False
 
     logger.debug("jellyfin backup completed successfully")
     return True
@@ -143,14 +145,31 @@ def folder_total_size(folder: str) -> int:
     return total
 
 
-def copy_backup(folder: str, destination: str):
-    for file in listdir(folder):
-        src = path_join(folder, file)
-        if not path_isfile(src):
-            continue
-        dest = path_join(destination, file)
-        shutil_copy2(src, dest)
-        logger.debug(f"copied {src} to {dest}")
+def copy_backup(folder: str, destination: str) -> bool:
+    copied = 0
+    try:
+        for file in listdir(folder):
+            src = path_join(folder, file)
+            if not path_isfile(src):
+                continue
+            dest = path_join(destination, file)
+            shutil_copy2(src, dest)
+            logger.debug(f"copied {src} to {dest}")
+            copied += 1
+            # a zip copied while jellyfin was still writing it fails here
+            verify_error = verify_zip(dest) if file.endswith(".zip") else None
+            if verify_error is not None:
+                logger.error(f"jellyfin backup {file} {verify_error}")
+                return False
+    except OSError as e:
+        logger.exception(e, stack_info=True)
+        return False
+
+    if copied == 0:
+        logger.error("no backup files were copied")
+        return False
+
+    return True
 
 
 def check_options(
