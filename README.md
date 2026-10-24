@@ -61,7 +61,7 @@ Every artefact is read back after it is written, and a failed check fails that s
 - *Arr and Jellyfin zips must open, contain at least one entry and pass a CRC check of every entry, which catches a zip copied while the app was still writing it.
 - `sqlite` copies must pass `PRAGMA integrity_check` (see below).
 
-A folder `isabak` will be created at the `destination` and backups will be added inside, the folder will be deleted and recreated each usage. It is created with mode `0700`, so only root can open it: the backups contain database dumps, API keys and password hashes. Use `sudo` to inspect them.
+A folder `isabak` will be created at the `destination` and backups will be added inside. Each run starts a fresh `isabak` folder. When the previous run succeeded, its tree is kept as `isabak.last-good`, when it failed its tree is dropped and the older `isabak.last-good` stays, so there is always a complete local tree. A successful run removes `isabak.last-good` before borg runs. During a run, and after a failed one, the destination therefore holds two trees. It is created with mode `0700`, so only root can open it: the backups contain database dumps, API keys and password hashes. Use `sudo` to inspect them.
 
 If omitted, borg default compression will be set to `none`.
 

@@ -1,14 +1,19 @@
 from src.isabak.logs import get_logger
 from yaml import safe_load as yaml_load
+from json import load as json_load
 from os import getenv
-from os import chmod, makedirs, stat
-from os.path import isdir as path_isdir, join as path_join
+from os import chmod, makedirs, rename, stat
+from os.path import exists as path_exists, isdir as path_isdir, join as path_join
 from shutil import rmtree
 
 logger = get_logger(__name__)
 
 app_name = "isabak"
 config_file_path = "config.yaml"
+# written into the tree by every run, read back to know whether that run succeeded
+manifest_name = "isabak-run.json"
+# the last complete tree, kept next to the new one until the next successful run
+last_good_suffix = ".last-good"
 
 top_level_keys = {
     "domain",
@@ -120,9 +125,10 @@ def get_base_destination(destination: str, allow_root_fs: bool = False) -> str |
     base_destination = path_join(destination, app_name)
 
     try:
-        rmtree(base_destination)
-    except Exception as e:
-        logger.debug(f"could not remove existing backup destination folder ({e})")
+        keep_last_good(base_destination)
+    except OSError as e:
+        logger.error(f"could not set aside the previous backup tree ({e})")
+        return None
 
     try:
         makedirs(base_destination)
@@ -135,3 +141,36 @@ def get_base_destination(destination: str, allow_root_fs: bool = False) -> str |
         return None
 
     return base_destination
+
+
+def keep_last_good(base_destination: str):
+    # the previous run's tree becomes isabak.last-good when that run succeeded;
+    # a failed run's tree is dropped and the older last-good stays, so a run of
+    # failures never leaves the destination without a complete local tree
+    if not path_exists(base_destination):
+        return
+    last_good = base_destination + last_good_suffix
+    if previous_run_ok(base_destination):
+        if path_exists(last_good):
+            rmtree(last_good)
+        rename(base_destination, last_good)
+    else:
+        rmtree(base_destination)
+
+
+def previous_run_ok(base_destination: str) -> bool:
+    try:
+        with open(path_join(base_destination, manifest_name)) as f:
+            return json_load(f).get("ok") is True
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def drop_last_good(base_destination: str):
+    # called once this run's services all succeeded, before borg
+    last_good = base_destination + last_good_suffix
+    try:
+        if path_exists(last_good):
+            rmtree(last_good)
+    except OSError as e:
+        logger.error(f"could not remove {last_good} ({e})")

@@ -6,15 +6,13 @@ from src.isabak.services.arr_backup import arr_backup
 from src.isabak.services.jellyfin_backup import jellyfin_backup
 from src.isabak.services.sqlite_backup import sqlite_backup
 from src.isabak.logs import get_logger
-from src.isabak.config import get_base_destination
+from src.isabak.config import drop_last_good, get_base_destination, manifest_name
 from src.isabak.report import RunReport, describe_error
 from os import makedirs
 from os.path import join as path_join
 from time import monotonic
 
 logger = get_logger(__name__)
-
-manifest_name = "isabak-run.json"
 
 
 def services_backup(config: dict, report: RunReport) -> bool:
@@ -160,6 +158,10 @@ def services_backup(config: dict, report: RunReport) -> bool:
 
     # goes into the borg archive with the backups it describes
     write_manifest(base_destination, report)
+
+    # this tree is complete, the previous one is not needed any more
+    if not failed_services and report.ok():
+        drop_last_good(base_destination)
 
     if failed_services:
         logger.error(f"services backup failed for: {', '.join(failed_services)}")
