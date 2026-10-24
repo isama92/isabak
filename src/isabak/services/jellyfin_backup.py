@@ -1,7 +1,7 @@
 import requests
 from fnmatch import fnmatch
 from json import dumps as json_dumps
-from time import sleep
+from time import monotonic, sleep
 from os import listdir, makedirs, remove, stat
 from os.path import isfile as path_isfile, join as path_join
 from shutil import copy2 as shutil_copy2
@@ -13,6 +13,10 @@ logger = get_logger(__name__)
 
 # the only files isabak ever deletes in the jellyfin backup folder
 backup_pattern = "jellyfin-backup-*.zip"
+# a backup with metadata can take minutes, a stalled one must not hang the run
+creation_timeout = 600
+# seconds in a row the new file must keep the same size before it is copied
+stable_seconds = 3
 
 
 def jellyfin_backup(
@@ -136,7 +140,7 @@ def create_backup(base_url: str, headers: dict, body: dict) -> bool:
 
 def wait_backup_creation(folder: str, existing_files: set[str]) -> list[str]:
     # only a file that was not there before the request counts as the new backup
-    loop_n = 0
+    deadline = monotonic() + creation_timeout
     while True:
         files = list_backup_files(folder)
         if files is None:
@@ -144,23 +148,26 @@ def wait_backup_creation(folder: str, existing_files: set[str]) -> list[str]:
         new_files = sorted(files - existing_files)
         if new_files:
             break
-        if loop_n > 14:
+        if monotonic() > deadline:
             logger.error("backup was not created in time")
             return []
         sleep(1)
-        loop_n += 1
 
-    while True:
-        size_before = files_total_size(folder, new_files)
-        sleep(1)
-        size_after = files_total_size(folder, new_files)
-        if size_before > 0 and size_before == size_after:
-            logger.debug(f"new backup files: {', '.join(new_files)}")
-            return new_files
-        if loop_n > 29:
+    # jellyfin has no status api, so "done" means the size stopped changing for
+    # several seconds in a row; a pause in writing is still caught by the zip check
+    stable = 0
+    size_before = files_total_size(folder, new_files)
+    while stable < stable_seconds:
+        if monotonic() > deadline:
             logger.error("backup file size did not stabilize in time")
             return []
-        loop_n += 1
+        sleep(1)
+        size_after = files_total_size(folder, new_files)
+        stable = stable + 1 if size_after > 0 and size_after == size_before else 0
+        size_before = size_after
+
+    logger.debug(f"new backup files: {', '.join(new_files)}")
+    return new_files
 
 
 def files_total_size(folder: str, files: list[str]) -> int:

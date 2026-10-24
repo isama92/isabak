@@ -1,6 +1,6 @@
 import requests
 from json import dumps as json_dumps
-from time import sleep
+from time import monotonic, sleep
 from os import listdir, makedirs
 from os.path import isfile as path_isfile, join as path_join
 from shutil import copy2 as shutil_copy2
@@ -13,6 +13,11 @@ logger = get_logger(__name__)
 # backup type reported by the *arr api for backups started through the command
 # api, which is how isabak creates them
 manual_type = "manual"
+# a backup file appears while the app is still writing it, so isabak waits until
+# the app itself reports the command as finished
+command_timeout = 600
+command_poll_seconds = 2
+command_failed = {"failed", "aborted", "cancelled", "orphaned"}
 
 
 def arr_backup(
@@ -47,7 +52,12 @@ def arr_backup(
     if existing_files is None:
         return False
 
-    if not create_backup(base_url, headers):
+    created, command_id = create_backup(base_url, headers)
+    if not created:
+        return False
+    if command_id is None:
+        logger.debug("backup command id missing, relying on the zip check")
+    elif not wait_command(base_url, headers, command_id):
         return False
 
     new_files = wait_backup_creation(folder, existing_files)
@@ -129,7 +139,7 @@ def delete_old_backups(base_url: str, headers: dict, keep: list[str]):
     logger.debug(f"{deleted} old manual backups deleted")
 
 
-def create_backup(base_url: str, headers: dict) -> bool:
+def create_backup(base_url: str, headers: dict) -> tuple[bool, int | None]:
     try:
         response = requests.post(
             f"{base_url}/command",
@@ -139,13 +149,46 @@ def create_backup(base_url: str, headers: dict) -> bool:
         )
     except requests.RequestException as e:
         logger.error(f"backup creation request failed: {e}")
-        return False
+        return False, None
 
     if response.status_code != 201:
         logger.error(f"backup creation request failed with code {response.status_code}")
-        return False
+        return False, None
 
-    return True
+    try:
+        command_id = response.json().get("id")
+    except (ValueError, AttributeError):
+        command_id = None
+    if isinstance(command_id, bool) or not isinstance(command_id, int):
+        command_id = None
+    return True, command_id
+
+
+def wait_command(base_url: str, headers: dict, command_id: int) -> bool:
+    deadline = monotonic() + command_timeout
+    while True:
+        try:
+            response = requests.get(
+                f"{base_url}/command/{command_id}", headers=headers, timeout=30
+            )
+            status = response.json().get("status") if response.ok else None
+        except (requests.RequestException, ValueError, AttributeError) as e:
+            logger.error(f"backup command status request failed: {e}")
+            return False
+        if not response.ok:
+            logger.error(
+                f"backup command status request failed with code {response.status_code}"
+            )
+            return False
+        if status == "completed":
+            return True
+        if status in command_failed:
+            logger.error(f"backup command ended as {status}")
+            return False
+        if monotonic() > deadline:
+            logger.error(f"backup command did not finish in {command_timeout}s")
+            return False
+        sleep(command_poll_seconds)
 
 
 def list_backup_files(folder: str) -> set[str] | None:
