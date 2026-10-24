@@ -36,13 +36,13 @@ Top-level `main.py` is a thin shim around `src.isabak.main:main`. The real pipel
 1. **Logging bootstrap is implicit** — `src/isabak/logs.py` loads `.env` (if present) and calls `logging.basicConfig` *at module import*, so by the time any other module's `logger = get_logger(__name__)` runs, the root logger is configured. There is no explicit setup call in `main()`. If you add a new top-level module, ensure it imports `logs.py` (directly or transitively) before any logging occurs.
 2. `load_config()` — parses `config.yaml` from CWD; returns `None` and aborts on missing/empty/malformed file.
 3. `merge_config()` — overlays env onto YAML. Only `DOMAIN` and `DESTINATION` are merged here; everything else (DB credentials, borg passphrase, etc.) lives in YAML only.
-4. `services_backup(config)` runs whenever the `services` key is present, so an empty or `null` value fails validation instead of being skipped. It returns `False` if any service failed or a service has no backup type configured (e.g. a misspelt key). Without a `services` key the run is Borg-only and prune is allowed.
-5. `borg_transfer(config["borg"], prune=services_ok)` runs if `borg` key exists. Borg runs *after* services, so it can pick up the freshly-written backup tree. When a service failed, `borg create` still runs but `prune`/`compact` are skipped, so retention never rotates out the last good archive.
-6. `main()` exits with status 1 if config loading, any service, or the borg stage failed.
+4. `services_backup(config, report)` runs whenever the `services` key is present, so an empty or `null` value fails validation instead of being skipped. It returns `False` if any service failed or a service has no backup type configured (e.g. a misspelt key). Without a `services` key the run is Borg-only and prune is allowed.
+5. `borg_transfer(config["borg"], report, prune=services_ok)` runs if `borg` key exists. Borg runs *after* services, so it can pick up the freshly-written backup tree. When a service failed, `borg create` still runs but `prune`/`compact` are skipped, so retention never rotates out the last good archive.
+6. Every stage records its outcome in a `RunReport` (`src/isabak/report.py`). `main()` wraps the pipeline (`run()`) in `try/except Exception`, then always logs a summary: at ERROR when anything failed (so cron emails it), at INFO on success (so successful runs stay quiet). It exits with status 1 when any step failed. Every `False` path that ends a stage must add a failed step, or the run would be reported as successful. Summary notes use `describe_error()`, never `str(e)`, because a `CalledProcessError` message includes argv, which can contain credentials.
 
 ### Destination layout (destructive)
 
-`get_base_destination()` in `src/isabak/config.py` **wipes and recreates** `<destination>/isabak/` on every run. Per-service output goes into `<destination>/isabak/<service.name>/<backup-type>/` where `<backup-type>` ∈ `{fs, mysql, mariadb, postgres, arr}`. This is intentional — the README warns users to verify backups, and Borg is the long-term store.
+`get_base_destination()` in `src/isabak/config.py` **wipes and recreates** `<destination>/isabak/` on every run. Per-service output goes into `<destination>/isabak/<service.name>/<backup-type>/` where `<backup-type>` ∈ `{fs, mysql, mariadb, postgres, arr, jellyfin}`. This is intentional — the README warns users to verify backups, and Borg is the long-term store.
 
 ### Service module contract
 
@@ -51,7 +51,7 @@ Each file in `src/isabak/services/` exports one `*_backup()` function and follow
 - The entry function returns `bool`: `True` on success, `False` on any failure. Never return `None`.
 - A top-level `check_options(...)` that logs `*.<field> is required` and returns `False` on missing config; the entry function returns `False` on failure rather than raising.
 - The entry function `makedirs(destination, exist_ok=True)` for its own subfolder, then runs the work inside a `try/except Exception` that calls `logger.exception(...)` and returns `False`. A failure in one service must not abort the rest of the run — keep this log-and-continue style when adding new backup types, but always report the failure through the return value.
-- Wire any new service into `services_backup()` in `src/isabak/service.py` with the same `if service.get("<key>") is not None: results.append(...)` pattern.
+- Wire any new service into `services_backup()` in `src/isabak/service.py` with the same `if service.get("<key>") is not None: results.append(run_step(report, service_name, "<key>", <fn>, ...))` pattern. `run_step()` times the call, records it in the report and turns any exception that escapes the module into a failed step, so one service can never abort the rest of the run or the borg stage.
 
 Notable per-module specifics:
 

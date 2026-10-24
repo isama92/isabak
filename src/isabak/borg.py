@@ -1,11 +1,13 @@
 import subprocess
+from time import monotonic
 from src.isabak.helpers import replace_env_vars
 from src.isabak.logs import get_logger
+from src.isabak.report import RunReport, describe_error
 
 logger = get_logger(__name__)
 
 
-def borg_transfer(options: dict, prune: bool = True) -> bool:
+def borg_transfer(options: dict, report: RunReport, prune: bool = True) -> bool:
     logger.info("starting borg transfers")
 
     repository = options.get("repository")
@@ -13,25 +15,37 @@ def borg_transfer(options: dict, prune: bool = True) -> bool:
     folders = options.get("folders")
 
     if not check_options(repository, passphrase, folders):
+        report.add("borg", "config", False, 0, "invalid borg configuration")
         return False
 
+    note = ""
     if not prune:
         logger.warning("borg prune and compact skipped, a service backup failed")
+        note = "prune and compact skipped"
 
-    for entry in folders:
+    for index, entry in enumerate(folders):
+        started = monotonic()
         entry_borg_env = borg_env(repository, passphrase, entry)
         try:
             borg_create(entry_borg_env, entry)
             if prune:
                 borg_prune(entry_borg_env)
                 borg_compact(entry_borg_env)
-        except subprocess.CalledProcessError as e:
-            logger.exception(e)
-            log_std_outputs(e, True)
-            return False
         except Exception as e:
             logger.exception(e)
+            if isinstance(e, subprocess.CalledProcessError):
+                log_std_outputs(e, True)
+            report.add(
+                "borg",
+                entry["repository"],
+                False,
+                monotonic() - started,
+                describe_error(e),
+            )
+            for skipped in folders[index + 1 :]:
+                report.add("borg", skipped["repository"], False, 0, "not run")
             return False
+        report.add("borg", entry["repository"], True, monotonic() - started, note)
 
     logger.info("borg transfers completed")
     return True

@@ -6,24 +6,28 @@ from src.isabak.services.arr_backup import arr_backup
 from src.isabak.services.jellyfin_backup import jellyfin_backup
 from src.isabak.logs import get_logger
 from src.isabak.config import get_base_destination
+from src.isabak.report import RunReport, describe_error
 from os import makedirs
 from os.path import join as path_join
+from time import monotonic
 
 logger = get_logger(__name__)
 
 
-def services_backup(config: dict) -> bool:
+def services_backup(config: dict, report: RunReport) -> bool:
     logger.info("starting services backup")
 
     base_destination = config.get("destination")
     services = config.get("services")
 
     if not check_options(base_destination, services):
+        report.add("services", "config", False, 0, "invalid services or destination")
         return False
 
     base_destination = get_base_destination(base_destination)
 
     if base_destination is None:
+        report.add("services", "destination", False, 0, "could not be created")
         return False
 
     failed_services = []
@@ -34,16 +38,36 @@ def services_backup(config: dict) -> bool:
 
         destination = str(path_join(base_destination, service_name, ""))
 
-        makedirs(destination, exist_ok=True)
+        try:
+            makedirs(destination, exist_ok=True)
+        except Exception as e:
+            logger.exception(e)
+            report.add(service_name, "folder", False, 0, describe_error(e))
+            failed_services.append(service_name)
+            continue
 
         results = []
 
         if service.get("fs") is not None:
-            results.append(fs_backup(service_name, service.get("fs"), destination))
+            results.append(
+                run_step(
+                    report,
+                    service_name,
+                    "fs",
+                    fs_backup,
+                    service_name,
+                    service.get("fs"),
+                    destination,
+                )
+            )
 
         if service.get("mysql") is not None:
             results.append(
-                mysql_backup(
+                run_step(
+                    report,
+                    service_name,
+                    "mysql",
+                    mysql_backup,
                     service_name,
                     service.get("mysql"),
                     config.get("mysql", {}),
@@ -53,7 +77,11 @@ def services_backup(config: dict) -> bool:
 
         if service.get("mariadb") is not None:
             results.append(
-                mariadb_backup(
+                run_step(
+                    report,
+                    service_name,
+                    "mariadb",
+                    mariadb_backup,
                     service_name,
                     service.get("mariadb"),
                     config.get("mariadb", {}),
@@ -63,12 +91,24 @@ def services_backup(config: dict) -> bool:
 
         if service.get("postgres") is not None:
             results.append(
-                postgres_backup(service_name, service.get("postgres"), destination)
+                run_step(
+                    report,
+                    service_name,
+                    "postgres",
+                    postgres_backup,
+                    service_name,
+                    service.get("postgres"),
+                    destination,
+                )
             )
 
         if service.get("arr") is not None:
             results.append(
-                arr_backup(
+                run_step(
+                    report,
+                    service_name,
+                    "arr",
+                    arr_backup,
                     service_name,
                     service.get("arr"),
                     config.get("domain"),
@@ -78,7 +118,11 @@ def services_backup(config: dict) -> bool:
 
         if service.get("jellyfin") is not None:
             results.append(
-                jellyfin_backup(
+                run_step(
+                    report,
+                    service_name,
+                    "jellyfin",
+                    jellyfin_backup,
                     service_name,
                     service.get("jellyfin"),
                     config.get("domain"),
@@ -88,6 +132,7 @@ def services_backup(config: dict) -> bool:
 
         if not results:
             logger.error(f"{service_name} has no backup type configured")
+            report.add(service_name, "config", False, 0, "no backup type configured")
             failed_services.append(service_name)
         elif not all(results):
             failed_services.append(service_name)
@@ -100,6 +145,23 @@ def services_backup(config: dict) -> bool:
 
     logger.info("services backup completed")
     return True
+
+
+def run_step(
+    report: RunReport, service_name: str, backup_type: str, backup_fn, *args
+) -> bool:
+    # an exception escaping one backup must not abort the other services or borg
+    started = monotonic()
+    try:
+        ok = backup_fn(*args)
+    except Exception as e:
+        logger.exception(e)
+        report.add(
+            service_name, backup_type, False, monotonic() - started, describe_error(e)
+        )
+        return False
+    report.add(service_name, backup_type, ok, monotonic() - started)
+    return ok
 
 
 def check_options(destination, services) -> bool:
