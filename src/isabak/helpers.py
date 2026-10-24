@@ -7,9 +7,12 @@ def check_source(folder: str) -> str | None:
     # an unmounted disk leaves an empty mount point, backing it up looks like success
     if not path_isdir(folder):
         return "does not exist, is its disk mounted?"
-    with scandir(folder) as entries:
-        if next(entries, None) is None:
-            return "is empty, is its disk mounted?"
+    try:
+        with scandir(folder) as entries:
+            if next(entries, None) is None:
+                return "is empty, is its disk mounted?"
+    except OSError as e:
+        return f"cannot be read ({e.strerror})"
     return None
 
 
