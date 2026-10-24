@@ -52,7 +52,7 @@ services:
       files:
         - "/home/user/your_service_files/data/app.db"
 borg:
-  repository: "ssh://user@host:/"
+  repository: "ssh://user@host:22/~/borg/"
   passphrase: "your-passphrase"
   keep:
     daily: 7
@@ -60,11 +60,11 @@ borg:
     monthly: 3
     partial_days: 7
   folders:
-    - repository: "/docker-services"
+    - repository: "docker-services"
       folder: "/home/user/backups"
       compression: "zstd,9"
-    - repository: "/pictures"
+    - repository: "pictures"
       folder: "${DATA_PATH}/Pictures"
-    - repository: "/homes"
+    - repository: "homes"
       folder: "/home"
       compression: "none"

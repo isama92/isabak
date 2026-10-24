@@ -240,7 +240,7 @@ def borg_compact(env: dict):
 def check_options(
     repository: str | None, passphrase: str | None, folders: list | None
 ) -> bool:
-    if repository is None:
+    if not isinstance(repository, str):
         logger.error("borg.repository is required")
         return False
     if passphrase is None:
@@ -258,6 +258,15 @@ def check_options(
             return False
         if not isinstance(entry.get("folder"), str):
             logger.error("borg.folders.folder is required")
+            return False
+        # the two parts are joined as they are, a doubled slash points borg at
+        # another path than intended (e.g. "ssh://host:/" + "/repo")
+        joined = repository + entry["repository"]
+        if "//" in joined.split("://", 1)[-1]:
+            logger.error(
+                f"borg repository '{joined}' has '//' after joining borg.repository "
+                "and borg.folders.repository, check the slashes"
+            )
             return False
     return True
 

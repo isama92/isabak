@@ -66,6 +66,8 @@ A folder `isabak` will be created at the `destination` and backups will be added
 
 If omitted, borg default compression will be set to `none`.
 
+`borg.repository` and each `borg.folders[].repository` are joined exactly as written, e.g. `ssh://user@host:22/~/borg/` + `docker-services` gives `ssh://user@host:22/~/borg/docker-services`. A doubled slash in the path after joining (e.g. `ssh://user@host:/` + `/docker-services`) is refused, since it points borg at a different path than intended.
+
 ### Borg retention and partial archives
 
 ```yaml
