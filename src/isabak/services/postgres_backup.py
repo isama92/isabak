@@ -1,4 +1,4 @@
-from os import makedirs, getuid, getgid
+from os import environ, makedirs, getuid, getgid
 from os.path import join as path_join, exists as path_exists, realpath as path_realpath
 from shutil import move as shutil_move
 from shutil import rmtree as shutil_rmtree
@@ -70,14 +70,19 @@ def create_backup(
         "-e", f"POSTGRES_HOST={db_container}",
         "-e", f"POSTGRES_DB={db_name}",
         "-e", f"POSTGRES_USER={db_username}",
-        "-e", f"POSTGRES_PASSWORD={db_password}",
+        # no value: docker copies it from its own env, keeping it out of argv
+        "-e", "POSTGRES_PASSWORD",
         "prodrigestivill/postgres-backup-local", "/backup.sh"
     ]
     # fmt: on
 
     try:
         subprocess.run(
-            docker_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True
+            docker_cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=True,
+            env={**environ, "POSTGRES_PASSWORD": db_password},
         )
     except subprocess.CalledProcessError as e:
         logger.exception(e, stack_info=True)

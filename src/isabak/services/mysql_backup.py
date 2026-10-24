@@ -5,6 +5,8 @@ from src.isabak.logs import get_logger
 
 logger = get_logger(__name__)
 
+CNF_WRITE_CMD = "umask 077 && cat > /backup.cnf"
+
 
 def mysql_backup(
     service_name: str, service_options: dict, db_options: dict, destination: str
@@ -37,8 +39,14 @@ def mysql_backup(
 
 
 def create_credentials(db_container: str, db_username: str, db_password: str):
-    cmd = f"""echo -e "[client]\\nuser={db_username}\\npassword={db_password}\\nhost=localhost\\n" > /backup.cnf"""
-    subprocess.run(["docker", "exec", db_container, "bash", "-c", cmd], check=True)
+    # credentials go over stdin, never argv, so they cannot leak via ps or tracebacks
+    password = db_password.replace("\\", "\\\\")
+    cnf = f'[client]\nuser="{db_username}"\npassword="{password}"\nhost=localhost\n'
+    subprocess.run(
+        ["docker", "exec", "-i", db_container, "sh", "-c", CNF_WRITE_CMD],
+        input=cnf.encode(),
+        check=True,
+    )
 
 
 def create_backup(db_name: str, db_container: str, destination: str):
@@ -89,6 +97,10 @@ def check_options(
     if db_password is None:
         logger.error(f"mysql.password is required")
         return False
+    for field, value in (("username", db_username), ("password", db_password)):
+        if any(char in str(value) for char in ('"', "\n", "\r")):
+            logger.error(f"mysql.{field} cannot contain double quotes or line breaks")
+            return False
     return True
 
 
