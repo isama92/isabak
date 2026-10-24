@@ -10,6 +10,8 @@ from src.isabak.verify import postgres_dump_marker, verify_sql_gzip
 logger = get_logger(__name__)
 
 container_timeout = 3600
+# enough for the reason a dump failed without flooding the email
+output_lines = 50
 
 
 def postgres_backup(service_name: str, service_options: dict, destination: str) -> bool:
@@ -88,21 +90,40 @@ def create_backup(
     # fmt: on
 
     try:
-        run_command(
+        process = run_command(
             docker_cmd,
             timeout=container_timeout,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             check=True,
             env={**environ, "POSTGRES_PASSWORD": db_password},
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         logger.exception(e, stack_info=True)
+        # the container's own output says why: wrong password, unknown host,
+        # pg_dump older than the server, ...
+        log_output(getattr(e, "stdout", None), db_password, logger.error)
         shutil_rmtree(tmp_folder)
         return False
 
+    log_output(process.stdout, db_password, logger.debug)
     logger.debug("backup created")
     return True
+
+
+def log_output(output: bytes | None, db_password: str, log):
+    if not output:
+        return
+    text = output.decode(errors="replace").strip()
+    # pg_dump does not print the password, masked anyway in case a future image does
+    if db_password:
+        text = text.replace(db_password, "***")
+    lines = text.splitlines()
+    if len(lines) > output_lines:
+        lines = [f"... {len(lines) - output_lines} earlier lines skipped"] + lines[
+            -output_lines:
+        ]
+    log("\n".join(lines))
 
 
 def check_options(
