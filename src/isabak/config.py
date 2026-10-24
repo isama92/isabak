@@ -10,6 +10,19 @@ logger = get_logger(__name__)
 app_name = "isabak"
 config_file_path = "config.yaml"
 
+top_level_keys = {
+    "domain",
+    "destination",
+    "allow_destination_on_root_fs",
+    "mysql",
+    "mariadb",
+    "services",
+    "borg",
+}
+service_keys = {"name", "fs", "mysql", "mariadb", "postgres", "arr", "jellyfin"}
+borg_keys = {"repository", "passphrase", "folders"}
+borg_folder_keys = {"repository", "folder", "compression"}
+
 
 def load_config() -> dict | None:
     logger.debug(f"loading {config_file_path}")
@@ -45,6 +58,37 @@ def merge_config(config: dict) -> dict:
     logger.debug(f"env to config merge completed")
 
     return config
+
+
+def check_unknown_keys(config: dict) -> bool:
+    # a misspelt key is otherwise ignored silently, e.g. "Borg:" skips the upload
+    ok = report_unknown_keys("", config, top_level_keys)
+
+    services = config.get("services")
+    if isinstance(services, list):
+        for service in services:
+            if isinstance(service, dict):
+                prefix = f"services.{service.get('name')}."
+                ok = report_unknown_keys(prefix, service, service_keys) and ok
+
+    borg = config.get("borg")
+    if isinstance(borg, dict):
+        ok = report_unknown_keys("borg.", borg, borg_keys) and ok
+        folders = borg.get("folders")
+        if isinstance(folders, list):
+            for index, entry in enumerate(folders):
+                if isinstance(entry, dict):
+                    prefix = f"borg.folders[{index}]."
+                    ok = report_unknown_keys(prefix, entry, borg_folder_keys) and ok
+
+    return ok
+
+
+def report_unknown_keys(prefix: str, section: dict, allowed: set[str]) -> bool:
+    unknown = sorted(str(key) for key in section if key not in allowed)
+    for key in unknown:
+        logger.error(f"{prefix}{key} is not a known option")
+    return not unknown
 
 
 def get_base_destination(destination: str, allow_root_fs: bool = False) -> str | None:

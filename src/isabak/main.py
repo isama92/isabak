@@ -1,6 +1,7 @@
 import sys
 from src.isabak.config import (
     app_name,
+    check_unknown_keys,
     load_config,
     merge_config,
 )
@@ -40,13 +41,26 @@ def run(report: RunReport):
 
     logger.debug("configuration loaded")
 
+    # unknown keys fail the run and block prune, but the backups still run
+    config_ok = check_unknown_keys(config)
+    if not config_ok:
+        report.add("config", "config.yaml", False, 0, "unknown options, see log")
+
     services_ok = True
 
     if "services" in config:
         services_ok = services_backup(config, report)
 
-    if config.get("borg"):
-        borg_transfer(config["borg"], report, prune=services_ok)
+    borg = config.get("borg")
+    if borg is False:
+        logger.info("borg disabled in config.yaml, no off-site copy made")
+    elif not isinstance(borg, dict):
+        logger.error(
+            "borg is missing or malformed, set borg: false to skip it on purpose"
+        )
+        report.add("borg", "config", False, 0, "missing or malformed")
+    else:
+        borg_transfer(borg, report, prune=services_ok and config_ok)
 
 
 if __name__ == "__main__":

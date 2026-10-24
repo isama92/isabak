@@ -30,6 +30,9 @@ All services paths can use ${} to add an environment variable in the path itself
 - `domain`: used to generate backups for the ARR stack.
 - `destination`: place where backups will be created. It must already exist and must not be on the root filesystem, see [Mount guards](#mount-guards).
 - `allow_destination_on_root_fs` (optional, default `false`): set to `true` if `destination` is intentionally on the same filesystem as `/`.
+- `borg`: required. Set `borg: false` to run without an off-site copy on purpose. A missing, empty or misspelt `borg` key fails the run instead of silently skipping the upload.
+
+Unknown keys at the top level, in a service entry, in `borg` or in a `borg.folders` entry are reported as errors and fail the run (exit 1, borg prune skipped), so a typo cannot silently disable a backup. The backups that are configured correctly still run.
 
 ### Env List
 
