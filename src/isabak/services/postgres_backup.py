@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from os import environ, makedirs, getuid, getgid, remove
 from os.path import join as path_join, exists as path_exists, realpath as path_realpath
 from shutil import move as shutil_move
@@ -6,9 +7,9 @@ import subprocess
 from io import SEEK_END
 from re import compile as re_compile
 from tempfile import TemporaryFile
-from typing import BinaryIO
+from typing import IO
 from urllib.parse import quote
-from src.isabak.helpers import run_command, strip_control_characters
+from src.isabak.helpers import as_text, run_command, strip_control_characters
 from src.isabak.logs import get_logger
 from src.isabak.verify import postgres_dump_marker, verify_sql_gzip
 
@@ -32,20 +33,10 @@ def postgres_backup(
 ) -> bool:
     logger.debug(f"postgres backup for service '{service_name}' started")
 
-    db_name = service_options.get("db_name")
-    db_container = service_options.get("container")
-    db_network = service_options.get("network")
-    db_username = service_options.get("username")
-    db_password = service_options.get("password")
-    image = db_options.get("image", default_image)
-
-    if not check_options(
-        service_name, db_name, db_container, db_network, db_username, db_password
-    ):
+    options = check_options(service_name, service_options, db_options)
+    if options is None:
         return False
-    if not isinstance(image, str) or not image:
-        logger.error("postgres.image must be an image name")
-        return False
+    db_name = options.db_name
 
     destination = path_join(destination, "postgres", "")
     makedirs(destination, exist_ok=True)
@@ -55,7 +46,13 @@ def postgres_backup(
     logger.debug("tmp folder created")
 
     if not create_backup(
-        db_name, db_container, db_network, db_username, db_password, tmp_folder, image
+        db_name,
+        options.container,
+        options.network,
+        options.username,
+        options.password,
+        tmp_folder,
+        options.image,
     ):
         return False
 
@@ -135,7 +132,7 @@ def create_backup(
     return True
 
 
-def log_output(output: BinaryIO, db_password: str, log):
+def log_output(output: IO[bytes], db_password: str, log):
     size = output.seek(0, SEEK_END)
     if size == 0:
         return
@@ -166,27 +163,28 @@ def clean_output(data: bytes, db_password: str) -> str:
     return url_credentials.sub(r"\1***\2", text).strip()
 
 
+@dataclass(frozen=True)
+class PostgresOptions:
+    db_name: str
+    container: str
+    network: str
+    username: str
+    password: str
+    image: str
+
+
 def check_options(
-    service_name: str,
-    db_name: str | None,
-    db_container: str | None,
-    db_network: str | None,
-    db_username: str | None,
-    db_password: str | None,
-) -> bool:
-    if db_name is None:
-        logger.error(f"{service_name}.postgres.db_name is required")
-        return False
-    if db_container is None:
-        logger.error(f"{service_name}.postgres.container is required")
-        return False
-    if db_network is None:
-        logger.error(f"{service_name}.postgres.network is required")
-        return False
-    if db_username is None:
-        logger.error(f"{service_name}.postgres.username is required")
-        return False
-    if db_password is None:
-        logger.error(f"{service_name}.postgres.password is required")
-        return False
-    return True
+    service_name: str, service_options: dict, db_options: dict
+) -> PostgresOptions | None:
+    values: dict[str, str] = {}
+    for field in ("db_name", "container", "network", "username", "password"):
+        value = as_text(service_options.get(field))
+        if value is None:
+            logger.error(f"{service_name}.postgres.{field} is required")
+            return None
+        values[field] = value
+    image = db_options.get("image", default_image)
+    if not isinstance(image, str) or not image:
+        logger.error("postgres.image must be an image name")
+        return None
+    return PostgresOptions(**values, image=image)

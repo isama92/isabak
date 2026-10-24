@@ -15,6 +15,16 @@ def strip_control_characters(text: str) -> str:
     return control_characters.sub("", text)
 
 
+def as_text(value) -> str | None:
+    # yaml reads "password: 12345" as a number; it always worked as text, so
+    # numbers stay accepted, anything else (missing, a list) is refused
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (str, int, float)):
+        return str(value)
+    return None
+
+
 def run_command(
     cmd: list[str],
     timeout: float,

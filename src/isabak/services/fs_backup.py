@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from src.isabak.helpers import (
     check_source,
     replace_env_vars,
@@ -25,19 +26,20 @@ clock_skew_seconds = 300
 def fs_backup(service_name: str, service_options: dict, destination: str) -> bool:
     logger.debug(f"fs backup for service '{service_name}' started")
 
-    folder = service_options.get("folder")
-    include = service_options.get("include") or []
-    exclude = service_options.get("exclude") or []
-    max_age_hours = service_options.get("max_age_hours")
-
-    if not check_options(service_name, folder, include, exclude, max_age_hours):
+    options = check_options(service_name, service_options)
+    if options is None:
         return False
+    include, exclude, max_age_hours = (
+        options.include,
+        options.exclude,
+        options.max_age_hours,
+    )
 
     destination = path_join(destination, "fs", "")
     makedirs(destination, exist_ok=True)
 
     try:
-        folder = replace_env_vars(folder)
+        folder = replace_env_vars(options.folder)
     except KeyError as e:
         logger.error(f"{e}, {service_name}.fs.folder")
         return False
@@ -138,27 +140,34 @@ def tail(stderr: bytes | None) -> str:
     return "\n".join(f"rsync: {line}" for line in lines)
 
 
-def check_options(
-    service_name: str,
-    folder: str | None,
-    include: list,
-    exclude: list,
-    max_age_hours=None,
-):
-    if folder is None:
+@dataclass(frozen=True)
+class FsOptions:
+    folder: str
+    include: list
+    exclude: list
+    max_age_hours: float | None
+
+
+def check_options(service_name: str, service_options: dict) -> FsOptions | None:
+    folder = service_options.get("folder")
+    include = service_options.get("include") or []
+    exclude = service_options.get("exclude") or []
+    max_age_hours = service_options.get("max_age_hours")
+
+    if not isinstance(folder, str):
         logger.error(f"{service_name}.fs.folder is required")
-        return False
+        return None
     if not isinstance(include, list):
         logger.error(f"{service_name}.fs.include must be a list")
-        return False
+        return None
     if not isinstance(exclude, list):
         logger.error(f"{service_name}.fs.exclude must be a list")
-        return False
+        return None
     if max_age_hours is not None and (
         isinstance(max_age_hours, bool)
         or not isinstance(max_age_hours, (int, float))
         or max_age_hours <= 0
     ):
         logger.error(f"{service_name}.fs.max_age_hours must be a number above 0")
-        return False
-    return True
+        return None
+    return FsOptions(folder, include, exclude, max_age_hours)

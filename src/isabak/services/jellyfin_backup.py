@@ -5,7 +5,8 @@ from time import monotonic, sleep
 from os import listdir, makedirs, remove, stat
 from os.path import isfile as path_isfile, join as path_join
 from shutil import copy2 as shutil_copy2
-from src.isabak.helpers import replace_env_vars
+from dataclasses import dataclass
+from src.isabak.helpers import as_text, replace_env_vars
 from src.isabak.logs import get_logger
 from src.isabak.verify import verify_zip
 
@@ -24,27 +25,22 @@ def jellyfin_backup(
 ) -> bool:
     logger.debug(f"jellyfin backup for service '{service_name}' started")
 
-    subdomain = service_options.get("subdomain")
-    api_key = service_options.get("api_key")
-    folder = service_options.get("folder")
-    secure = service_options.get("secure", True)
-    options = service_options.get("options", {})
-
-    if not check_options(service_name, domain, api_key, folder):
+    options = check_options(service_name, service_options, domain)
+    if options is None:
         return False
 
     destination = path_join(destination, "jellyfin", "")
     makedirs(destination, exist_ok=True)
 
     try:
-        folder = replace_env_vars(folder)
+        folder = replace_env_vars(options.folder)
     except KeyError as e:
         logger.error(f"{e}, {service_name}.jellyfin.folder")
         return False
 
-    base_url = build_base_url(domain, subdomain, secure)
-    headers = build_headers(api_key)
-    body = build_options_body(options)
+    base_url = build_base_url(options.domain, options.subdomain, options.secure)
+    headers = build_headers(options.api_key)
+    body = build_options_body(options.content)
 
     # create, copy and check first, delete old backups only after that: a failed
     # run must never leave jellyfin, or the local tree, without any backup
@@ -207,19 +203,39 @@ def copy_backup(folder: str, files: list[str], destination: str) -> bool:
     return True
 
 
+@dataclass(frozen=True)
+class JellyfinOptions:
+    domain: str
+    subdomain: str | None
+    api_key: str
+    folder: str
+    secure: bool
+    # which content categories go into the zip, see build_options_body()
+    content: dict
+
+
 def check_options(
-    service_name: str,
-    domain: str | None,
-    api_key: str | None,
-    folder: str | None,
-) -> bool:
-    if domain is None:
+    service_name: str, service_options: dict, domain: str | None
+) -> JellyfinOptions | None:
+    subdomain = service_options.get("subdomain")
+    api_key = as_text(service_options.get("api_key"))
+    folder = service_options.get("folder")
+    secure = service_options.get("secure", True)
+    content = service_options.get("options") or {}
+
+    if not isinstance(domain, str):
         logger.error("domain is required")
-        return False
+        return None
     if api_key is None:
         logger.error(f"{service_name}.jellyfin.api_key is required")
-        return False
-    if folder is None:
+        return None
+    if not isinstance(folder, str):
         logger.error(f"{service_name}.jellyfin.folder is required")
-        return False
-    return True
+        return None
+    if subdomain is not None and not isinstance(subdomain, str):
+        logger.error(f"{service_name}.jellyfin.subdomain must be text")
+        return None
+    if not isinstance(content, dict):
+        logger.error(f"{service_name}.jellyfin.options must be a mapping")
+        return None
+    return JellyfinOptions(domain, subdomain, api_key, folder, bool(secure), content)

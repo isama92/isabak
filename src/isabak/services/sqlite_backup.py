@@ -35,9 +35,8 @@ sidecar_suffixes = ("-wal", "-shm")
 def sqlite_backup(service_name: str, service_options: dict, destination: str) -> bool:
     logger.debug(f"sqlite backup for service '{service_name}' started")
 
-    files = service_options.get("files")
-
-    if not check_options(service_name, files):
+    files = check_options(service_name, service_options.get("files"))
+    if files is None:
         return False
 
     destination = path_join(destination, "sqlite", "")
@@ -116,17 +115,19 @@ def backup_database(source: str, target: str):
 
 
 def copy_database(source_uri: str, tmp: str, identity: stat_result):
-    with closing(sqlite3.connect(source_uri, uri=True, timeout=30)) as src:
-        with closing(sqlite3.connect(tmp)) as dst:
-            src.backup(dst)
-            # the path could have been swapped for a symlink after the checks, so
-            # confirm the file sqlite actually has open is the one that was checked
-            if not holds_open(identity):
-                raise ValueError("database file changed during the backup")
-            # one self-contained file, no -wal or -shm next to the copy
-            dst.execute("PRAGMA journal_mode=DELETE")
-            # capped, a badly damaged file would otherwise list every page
-            problems = [row[0] for row in dst.execute("PRAGMA integrity_check(5)")]
+    with (
+        closing(sqlite3.connect(source_uri, uri=True, timeout=30)) as src,
+        closing(sqlite3.connect(tmp)) as dst,
+    ):
+        src.backup(dst)
+        # the path could have been swapped for a symlink after the checks, so
+        # confirm the file sqlite actually has open is the one that was checked
+        if not holds_open(identity):
+            raise ValueError("database file changed during the backup")
+        # one self-contained file, no -wal or -shm next to the copy
+        dst.execute("PRAGMA journal_mode=DELETE")
+        # capped, a badly damaged file would otherwise list every page
+        problems = [row[0] for row in dst.execute("PRAGMA integrity_check(5)")]
     if problems != ["ok"]:
         details = "; ".join(" ".join(problem.split()) for problem in problems)
         if len(details) > 300:
@@ -176,15 +177,15 @@ def fix_sidecar_owner(source: str, owner: stat_result, sidecars_before: set[str]
             close(fd)
 
 
-def check_options(service_name: str, files: list | None) -> bool:
+def check_options(service_name: str, files) -> list[str] | None:
     if not isinstance(files, list) or not files:
         logger.error(f"{service_name}.sqlite.files is required")
-        return False
+        return None
     if not all(isinstance(file, str) for file in files):
         logger.error(f"{service_name}.sqlite.files must be a list of paths")
-        return False
+        return None
     names = [basename(file) for file in files]
     if len(names) != len(set(names)):
         logger.error(f"{service_name}.sqlite.files must have unique file names")
-        return False
-    return True
+        return None
+    return files

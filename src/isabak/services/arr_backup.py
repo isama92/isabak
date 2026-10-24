@@ -4,7 +4,8 @@ from time import monotonic, sleep
 from os import listdir, makedirs
 from os.path import isfile as path_isfile, join as path_join
 from shutil import copy2 as shutil_copy2
-from src.isabak.helpers import replace_env_vars
+from dataclasses import dataclass
+from src.isabak.helpers import as_text, replace_env_vars
 from src.isabak.logs import get_logger
 from src.isabak.verify import verify_zip
 
@@ -25,26 +26,23 @@ def arr_backup(
 ) -> bool:
     logger.debug(f"arr backup for service '{service_name}' started")
 
-    subdomain = service_options.get("subdomain")
-    endpoint = service_options.get("endpoint")
-    api_key = service_options.get("api_key")
-    folder = service_options.get("folder")
-    secure = service_options.get("secure", True)
-
-    if not check_options(service_name, domain, endpoint, api_key, folder):
+    options = check_options(service_name, service_options, domain)
+    if options is None:
         return False
 
     destination = path_join(destination, "arr", "")
     makedirs(destination, exist_ok=True)
 
     try:
-        folder = replace_env_vars(folder)
+        folder = replace_env_vars(options.folder)
     except KeyError as e:
         logger.error(f"{e}, {service_name}.arr.folder")
         return False
 
-    base_url = build_base_url(domain, subdomain, endpoint, secure)
-    headers = build_headers(api_key)
+    base_url = build_base_url(
+        options.domain, options.subdomain, options.endpoint, options.secure
+    )
+    headers = build_headers(options.api_key)
 
     # create, copy and check first, delete old backups only after that: a failed
     # run must never leave the app, or the local tree, without any backup
@@ -69,7 +67,7 @@ def arr_backup(
 
     delete_old_backups(base_url, headers, new_files)
 
-    logger.debug(f"arr backup completed successfully")
+    logger.debug("arr backup completed successfully")
     return True
 
 
@@ -130,9 +128,8 @@ def delete_old_backups(base_url: str, headers: dict, keep: list[str]):
             logger.error(f"deletion of backup '{backup_id}' failed: {e}")
             return
         if response.status_code != 200:
-            logger.error(
-                f"deletion of backup '{backup_id}' failed with code {response.status_code}"
-            )
+            code = response.status_code
+            logger.error(f"deletion of backup '{backup_id}' failed with code {code}")
             return
         deleted += 1
 
@@ -243,23 +240,38 @@ def copy_backup(folder: str, files: list[str], destination: str) -> bool:
     return True
 
 
+@dataclass(frozen=True)
+class ArrOptions:
+    domain: str
+    subdomain: str | None
+    endpoint: str
+    api_key: str
+    folder: str
+    secure: bool
+
+
 def check_options(
-    service_name: str,
-    domain: str | None,
-    endpoint: str | None,
-    api_key: str | None,
-    folder: str | None,
-) -> bool:
-    if domain is None:
-        logger.error(f"domain is required")
-        return False
-    if endpoint is None:
-        logger.error(f"{service_name}.api.endpoint is required")
-        return False
+    service_name: str, service_options: dict, domain: str | None
+) -> ArrOptions | None:
+    subdomain = service_options.get("subdomain")
+    endpoint = service_options.get("endpoint")
+    api_key = as_text(service_options.get("api_key"))
+    folder = service_options.get("folder")
+    secure = service_options.get("secure", True)
+
+    if not isinstance(domain, str):
+        logger.error("domain is required")
+        return None
+    if not isinstance(endpoint, str):
+        logger.error(f"{service_name}.arr.endpoint is required")
+        return None
     if api_key is None:
-        logger.error(f"{service_name}.api.api_key is required")
-        return False
-    if folder is None:
-        logger.error(f"{service_name}.api.folder is required")
-        return False
-    return True
+        logger.error(f"{service_name}.arr.api_key is required")
+        return None
+    if not isinstance(folder, str):
+        logger.error(f"{service_name}.arr.folder is required")
+        return None
+    if subdomain is not None and not isinstance(subdomain, str):
+        logger.error(f"{service_name}.arr.subdomain must be text")
+        return None
+    return ArrOptions(domain, subdomain, endpoint, api_key, folder, bool(secure))

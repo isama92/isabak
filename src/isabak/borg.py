@@ -1,8 +1,9 @@
 import subprocess
+from dataclasses import dataclass
 from os import environ, sep
 from os.path import realpath
 from time import monotonic
-from src.isabak.helpers import check_source, replace_env_vars, run_command
+from src.isabak.helpers import as_text, check_source, replace_env_vars, run_command
 from src.isabak.logs import get_logger
 from src.isabak.report import RunReport, describe_error
 
@@ -28,12 +29,12 @@ def borg_transfer(
     # is archived under the partial- prefix
     logger.info("starting borg transfers")
 
-    repository = options.get("repository")
-    passphrase = options.get("passphrase")
-    folders = options.get("folders")
+    borg = check_options(
+        options.get("repository"), options.get("passphrase"), options.get("folders")
+    )
     keep = check_keep(options.get("keep"))
 
-    if not check_options(repository, passphrase, folders) or keep is None:
+    if borg is None or keep is None:
         report.add("borg", "config", False, 0, "invalid borg configuration")
         return False
 
@@ -45,7 +46,7 @@ def borg_transfer(
     failed = False
 
     # every entry is its own repository, so one failure never stops the others
-    for entry in folders:
+    for entry in borg.folders:
         started = monotonic()
 
         # a guard failure is specific to this source, so the other entries still run
@@ -56,7 +57,7 @@ def borg_transfer(
             failed = True
             continue
 
-        entry_borg_env = borg_env(repository, passphrase, entry)
+        entry_borg_env = borg_env(borg.repository, borg.passphrase, entry)
         partial = partial_tree is not None and holds_tree(entry["folder"], partial_tree)
         try:
             warned = borg_create(entry_borg_env, entry, partial)
@@ -148,15 +149,14 @@ def borg_env(base_repository: str, passphrase: str, entry: dict) -> dict:
     # any BORG_* settings from vars still reach borg and ssh
     return {
         **environ,
-        "BORG_REPO": base_repository + entry.get("repository"),
+        "BORG_REPO": base_repository + entry["repository"],
         "BORG_PASSPHRASE": passphrase,
     }
 
 
 def borg_create(env: dict, entry: dict, partial: bool = False) -> bool:
     # True when borg finished with warnings, exit code 1 still writes the archive
-    folder = entry.get("folder")
-    folder = replace_env_vars(folder)
+    folder = replace_env_vars(entry["folder"])
 
     compression = entry.get("compression")
     compression = compression if compression else "none"
@@ -237,28 +237,34 @@ def borg_compact(env: dict):
     logger.debug(f"{env.get('BORG_REPO')} compact completed")
 
 
-def check_options(
-    repository: str | None, passphrase: str | None, folders: list | None
-) -> bool:
+@dataclass(frozen=True)
+class BorgOptions:
+    repository: str
+    passphrase: str
+    folders: list[dict]
+
+
+def check_options(repository, passphrase, folders) -> BorgOptions | None:
+    passphrase = as_text(passphrase)
     if not isinstance(repository, str):
         logger.error("borg.repository is required")
-        return False
+        return None
     if passphrase is None:
         logger.error("borg.passphrase is required")
-        return False
-    if folders is None:
+        return None
+    if not isinstance(folders, list):
         logger.error("borg.folders is required")
-        return False
+        return None
     for entry in folders:
         if not isinstance(entry, dict):
             logger.error("borg.folders format is invalid")
-            return False
+            return None
         if not isinstance(entry.get("repository"), str):
             logger.error("borg.folders.repository is required")
-            return False
+            return None
         if not isinstance(entry.get("folder"), str):
             logger.error("borg.folders.folder is required")
-            return False
+            return None
         # the two parts are joined as they are, a doubled slash points borg at
         # another path than intended (e.g. "ssh://host:/" + "/repo")
         joined = repository + entry["repository"]
@@ -267,8 +273,8 @@ def check_options(
                 f"borg repository '{joined}' has '//' after joining borg.repository "
                 "and borg.folders.repository, check the slashes"
             )
-            return False
-    return True
+            return None
+    return BorgOptions(repository, passphrase, folders)
 
 
 def log_std_outputs(pipe, error=False):

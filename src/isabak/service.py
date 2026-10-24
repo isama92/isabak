@@ -18,15 +18,14 @@ logger = get_logger(__name__)
 def services_backup(config: dict, report: RunReport) -> bool:
     logger.info("starting services backup")
 
-    base_destination = config.get("destination")
-    services = config.get("services")
-
-    if not check_options(base_destination, services):
+    checked = check_options(config.get("destination"), config.get("services"))
+    if checked is None:
         report.add("services", "config", False, 0, "invalid services or destination")
         return False
+    destination, services = checked
 
     base_destination = get_base_destination(
-        base_destination,
+        destination,
         config.get("allow_destination_on_root_fs") is True,
         config.get("min_free_gb"),
     )
@@ -38,7 +37,8 @@ def services_backup(config: dict, report: RunReport) -> bool:
     failed_services = []
 
     for service in services:
-        service_name = service.get("name")
+        # checked by check_options()
+        service_name: str = service["name"]
         logger.info(f"{service_name} starting")
 
         destination = str(path_join(base_destination, service_name, ""))
@@ -198,26 +198,26 @@ def run_step(
     return ok
 
 
-def check_options(destination, services) -> bool:
+def check_options(destination, services) -> tuple[str, list[dict]] | None:
     if not isinstance(destination, str):
         logger.error("destination is required")
-        return False
+        return None
     if not isabs(destination):
         # a relative path lands wherever the job happens to run, e.g. an empty
         # DESTINATION or one built from an unset variable
         logger.error(f"destination '{destination}' must be an absolute path")
-        return False
+        return None
     if not isinstance(services, list):
         logger.error("services is malformed")
-        return False
+        return None
     if not services:
         logger.error("services is empty")
-        return False
+        return None
     for service in services:
         if not isinstance(service, dict):
-            logger.error(f"services is malformed")
-            return False
+            logger.error("services is malformed")
+            return None
         if not isinstance(service.get("name"), str):
             logger.error("services name is required")
-            return False
-    return True
+            return None
+    return destination, services

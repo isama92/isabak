@@ -48,7 +48,7 @@ def load_config() -> dict | None:
     logger.debug(f"loading {path}")
 
     try:
-        with open(path, "r") as f:
+        with open(path) as f:
             config = yaml_load(f)
     except FileNotFoundError:
         logger.error(f"{config_file_path} not found")
@@ -75,7 +75,7 @@ def load_config() -> dict | None:
 
 
 def merge_config(config: dict) -> dict:
-    logger.debug(f"merging env to config")
+    logger.debug("merging env to config")
 
     env_destination = getenv("DESTINATION")
     if env_destination is not None:
@@ -85,7 +85,7 @@ def merge_config(config: dict) -> dict:
     if env_domain is not None:
         config["domain"] = env_domain
 
-    logger.debug(f"env to config merge completed")
+    logger.debug("env to config merge completed")
 
     return config
 
@@ -158,7 +158,7 @@ def get_base_destination(
         # files inside keep their source permissions (rsync -a, copy2), so the
         # folder itself is what keeps other users out
         chmod(base_destination, 0o700)
-    except Exception as e:
+    except OSError as e:
         logger.error(f"could not create backup destination folder ({e})")
         return None
 
