@@ -4,11 +4,15 @@ from json import dumps as json_dumps
 from time import monotonic, sleep
 from os import listdir, makedirs, remove, stat
 from os.path import isfile as path_isfile, join as path_join
-from shutil import copy2 as shutil_copy2
 from dataclasses import dataclass
 from src.isabak.helpers import as_secret, replace_env_vars
 from src.isabak.logs import get_logger
-from src.isabak.verify import verify_zip
+from src.isabak.services.api_helpers import (
+    build_host_url,
+    build_json_headers,
+    copy_backup,
+    list_backup_files,
+)
 
 logger = get_logger(__name__)
 
@@ -38,8 +42,10 @@ def jellyfin_backup(
         logger.error(f"{e}, {service_name}.jellyfin.folder")
         return False
 
-    base_url = build_base_url(options.domain, options.subdomain, options.secure)
-    headers = build_headers(options.api_key)
+    base_url = build_host_url(options.domain, options.subdomain, options.secure)
+    headers = build_json_headers(
+        {"Authorization": f"MediaBrowser Token={options.api_key}"}
+    )
     body = build_options_body(options.content)
 
     # create, copy and check first, delete old backups only after that: a failed
@@ -55,27 +61,13 @@ def jellyfin_backup(
     if not new_files:
         return False
 
-    if not copy_backup(folder, new_files, destination):
+    if not copy_backup("jellyfin", folder, new_files, destination):
         return False
 
     delete_old_backups(folder, new_files)
 
     logger.debug("jellyfin backup completed successfully")
     return True
-
-
-def build_base_url(domain: str, subdomain: str | None, secure: bool) -> str:
-    scheme = "https" if secure else "http"
-    host = f"{subdomain}.{domain}" if subdomain else domain
-    return f"{scheme}://{host}"
-
-
-def build_headers(api_key: str) -> dict:
-    return {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "Authorization": f"MediaBrowser Token={api_key}",
-    }
 
 
 def build_options_body(options: dict) -> dict:
@@ -85,16 +77,6 @@ def build_options_body(options: dict) -> dict:
         "Trickplay": options.get("trickplay", False),
         "Subtitles": options.get("subtitles", False),
     }
-
-
-def list_backup_files(folder: str) -> set[str] | None:
-    try:
-        return {
-            file for file in listdir(folder) if path_isfile(path_join(folder, file))
-        }
-    except OSError as e:
-        logger.error(f"backup folder '{folder}' could not be read: {e}")
-        return None
 
 
 def delete_old_backups(folder: str, keep: list[str]):
@@ -174,33 +156,6 @@ def files_total_size(folder: str, files: list[str]) -> int:
         except OSError:
             continue
     return total
-
-
-def copy_backup(folder: str, files: list[str], destination: str) -> bool:
-    copied = 0
-    try:
-        for file in files:
-            src = path_join(folder, file)
-            if not path_isfile(src):
-                continue
-            dest = path_join(destination, file)
-            shutil_copy2(src, dest)
-            logger.debug(f"copied {src} to {dest}")
-            copied += 1
-            # a zip copied while jellyfin was still writing it fails here
-            verify_error = verify_zip(dest) if file.endswith(".zip") else None
-            if verify_error is not None:
-                logger.error(f"jellyfin backup {file} {verify_error}")
-                return False
-    except OSError as e:
-        logger.exception(e, stack_info=True)
-        return False
-
-    if copied == 0:
-        logger.error("no backup files were copied")
-        return False
-
-    return True
 
 
 @dataclass(frozen=True)

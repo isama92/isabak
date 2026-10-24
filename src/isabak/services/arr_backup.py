@@ -1,13 +1,17 @@
 import requests
 from json import dumps as json_dumps
 from time import monotonic, sleep
-from os import listdir, makedirs
-from os.path import isfile as path_isfile, join as path_join
-from shutil import copy2 as shutil_copy2
+from os import makedirs
+from os.path import join as path_join
 from dataclasses import dataclass
 from src.isabak.helpers import as_secret, replace_env_vars
 from src.isabak.logs import get_logger
-from src.isabak.verify import verify_zip
+from src.isabak.services.api_helpers import (
+    build_host_url,
+    build_json_headers,
+    copy_backup,
+    list_backup_files,
+)
 
 logger = get_logger(__name__)
 
@@ -42,7 +46,7 @@ def arr_backup(
     base_url = build_base_url(
         options.domain, options.subdomain, options.endpoint, options.secure
     )
-    headers = build_headers(options.api_key)
+    headers = build_json_headers({"X-Api-Key": options.api_key})
 
     # create, copy and check first, delete old backups only after that: a failed
     # run must never leave the app, or the local tree, without any backup
@@ -62,7 +66,7 @@ def arr_backup(
     if not new_files:
         return False
 
-    if not copy_backup(folder, new_files, destination):
+    if not copy_backup("arr", folder, new_files, destination):
         return False
 
     delete_old_backups(base_url, headers, new_files)
@@ -74,21 +78,10 @@ def arr_backup(
 def build_base_url(
     domain: str, subdomain: str | None, endpoint: str, secure: bool
 ) -> str:
-    scheme = "https" if secure else "http"
-    host = f"{subdomain}.{domain}" if subdomain else domain
-
     if not endpoint.startswith("/"):
         endpoint = "/" + endpoint
 
-    return f"{scheme}://{host}{endpoint}"
-
-
-def build_headers(api_key: str) -> dict:
-    return {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "X-Api-Key": api_key,
-    }
+    return build_host_url(domain, subdomain, secure) + endpoint
 
 
 def delete_old_backups(base_url: str, headers: dict, keep: list[str]):
@@ -188,16 +181,6 @@ def wait_command(base_url: str, headers: dict, command_id: int) -> bool:
         sleep(command_poll_seconds)
 
 
-def list_backup_files(folder: str) -> set[str] | None:
-    try:
-        return {
-            file for file in listdir(folder) if path_isfile(path_join(folder, file))
-        }
-    except OSError as e:
-        logger.error(f"backup folder '{folder}' could not be read: {e}")
-        return None
-
-
 def wait_backup_creation(folder: str, existing_files: set[str]) -> list[str]:
     loop_n = 0
     while True:
@@ -213,31 +196,6 @@ def wait_backup_creation(folder: str, existing_files: set[str]) -> list[str]:
             return []
         sleep(1)
         loop_n += 1
-
-
-def copy_backup(folder: str, files: list[str], destination: str) -> bool:
-    copied = 0
-    try:
-        for file in files:
-            src = path_join(folder, file)
-            dest = path_join(destination, file)
-            shutil_copy2(src, dest)
-            logger.debug(f"copied {src} to {dest}")
-            copied += 1
-            # a zip copied while the app was still writing it fails here
-            verify_error = verify_zip(dest) if file.endswith(".zip") else None
-            if verify_error is not None:
-                logger.error(f"arr backup {file} {verify_error}")
-                return False
-    except OSError as e:
-        logger.exception(e, stack_info=True)
-        return False
-
-    if copied == 0:
-        logger.error("no backup files were copied")
-        return False
-
-    return True
 
 
 @dataclass(frozen=True)
