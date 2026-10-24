@@ -6,6 +6,7 @@ mysql:
   container: "mysql"
   username: "username"
   password: "password"
+  # routines: true   # also dump stored procedures and events
 mariadb:
   container: "mariadb"
   username: "username"

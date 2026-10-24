@@ -23,8 +23,12 @@ def mariadb_backup(
     db_container = db_options.get("container")
     db_username = db_options.get("username")
     db_password = db_options.get("password")
+    routines = db_options.get("routines", False)
 
     if not check_options(service_name, db_name, db_container, db_username, db_password):
+        return False
+    if not isinstance(routines, bool):
+        logger.error(f"mariadb.routines must be true or false")
         return False
 
     destination = path_join(destination, "mariadb", "")
@@ -33,7 +37,7 @@ def mariadb_backup(
     try:
         create_credentials(db_container, db_username, db_password)
         try:
-            create_backup(db_name, db_container, destination)
+            create_backup(db_name, db_container, destination, routines)
         finally:
             delete_credentials(db_container)
     except Exception as e:
@@ -56,7 +60,9 @@ def create_credentials(db_container: str, db_username: str, db_password: str):
     )
 
 
-def create_backup(db_name: str, db_container: str, destination: str):
+def create_backup(
+    db_name: str, db_container: str, destination: str, routines: bool = False
+):
     dump_cmd = [
         "docker",
         "exec",
@@ -64,8 +70,12 @@ def create_backup(db_name: str, db_container: str, destination: str):
         "/usr/bin/mariadb-dump",
         "--defaults-extra-file=/backup.cnf",
         "--single-transaction",
-        db_name,
     ]
+    if routines:
+        # stored procedures, functions and events, off by default because they
+        # need the SHOW_ROUTINE and EVENT privileges
+        dump_cmd += ["--routines", "--events"]
+    dump_cmd.append(db_name)
 
     out_path = path_join(destination, "mariadb.sql.gz")
     with open(out_path, "wb") as f:

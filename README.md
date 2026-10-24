@@ -54,6 +54,8 @@ Some Env configuration will override the Yaml configuration:
 
 MariaDB dump tool changed from mysqldump to mariadb-dump since mariadb 10.5, prior version would not dump the database correctly.
 
+Set `routines: true` in the top-level `mysql` or `mariadb` block to also dump stored procedures, functions and events (`--routines --events`). It is off by default because the backup user then needs the `SHOW_ROUTINE` and `EVENT` privileges, otherwise every dump fails. Triggers are always included. To see whether any of your databases use them: `SELECT ROUTINE_SCHEMA, COUNT(*) FROM information_schema.ROUTINES GROUP BY 1;` and the same on `information_schema.EVENTS` with `EVENT_SCHEMA`.
+
 Do a run and **check all the backups are working**. Also check the content of gzipped files.
 
 Every artefact is read back after it is written, and a failed check fails that service:
