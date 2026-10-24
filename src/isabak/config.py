@@ -1,7 +1,7 @@
 from src.isabak.logs import get_logger
 from yaml import safe_load as yaml_load
 from os import getenv
-from os import makedirs, stat
+from os import chmod, makedirs, stat
 from os.path import isdir as path_isdir, join as path_join
 from shutil import rmtree
 
@@ -125,6 +125,10 @@ def get_base_destination(destination: str, allow_root_fs: bool = False) -> str |
 
     try:
         makedirs(base_destination)
+        # root only: the tree holds dumps, api keys and password hashes, and the
+        # files inside keep their source permissions (rsync -a, copy2), so the
+        # folder itself is what keeps other users out
+        chmod(base_destination, 0o700)
     except Exception as e:
         logger.error(f"could not create backup destination folder ({e})")
         return None

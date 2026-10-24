@@ -53,7 +53,7 @@ MariaDB dump tool changed from mysqldump to mariadb-dump since mariadb 10.5, pri
 
 Do a run and **check all the backups are working**. Also check the content of gzipped files.
 
-A folder `isabak` will be created at the `destination` and backups will be added inside, the folder will be deleted and recreated each usage.
+A folder `isabak` will be created at the `destination` and backups will be added inside, the folder will be deleted and recreated each usage. It is created with mode `0700`, so only root can open it: the backups contain database dumps, API keys and password hashes. Use `sudo` to inspect them.
 
 If omitted, borg default compression will be set to `none`.
 
