@@ -18,6 +18,8 @@ rsync_timeout = 2 * 3600
 rsync_vanished = 24
 # enough to see which files failed without flooding the email
 stderr_lines = 30
+# tolerated clock difference before a file time counts as in the future
+clock_skew_seconds = 300
 
 
 def fs_backup(service_name: str, service_options: dict, destination: str) -> bool:
@@ -75,9 +77,10 @@ def fs_backup(service_name: str, service_options: dict, destination: str) -> boo
 
     logger.debug(f"copied {folder} to {destination}")
 
-    # after the copy, so even a stale backup is kept, but the run is alerted
+    # after the copy, on the copy: it holds exactly what was backed up (excludes
+    # applied, rsync -a keeps the times), and even a stale backup is kept
     if max_age_hours is not None and not check_freshness(
-        service_name, folder, max_age_hours
+        service_name, destination, max_age_hours
     ):
         return False
 
@@ -90,12 +93,17 @@ def check_freshness(service_name: str, folder: str, max_age_hours: float) -> boo
     # the app stops writing, the copy would otherwise keep the old file forever
     newest = newest_file(folder)
     if newest is None:
-        logger.error(f"{service_name}.fs.folder '{folder}' contains no files")
+        logger.error(f"{service_name}.fs copied no files to check the age of")
         return False
     path, mtime = newest
+    # file names come from the app: no control characters, no line breaks
+    name = strip_control_characters(relpath(path, folder)).replace("\n", "\\n")
+    if mtime > time() + clock_skew_seconds:
+        # a future time would always look fresh
+        logger.error(f"{service_name}.fs newest file has a future time: {name}")
+        return False
     age_hours = (time() - mtime) / 3600
     if age_hours > max_age_hours:
-        name = strip_control_characters(relpath(path, folder))
         logger.error(
             f"{service_name}.fs newest file is {age_hours:.1f}h old "
             f"(limit {max_age_hours}h): {name}"
