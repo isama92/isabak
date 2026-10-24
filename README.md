@@ -101,6 +101,10 @@ When a data disk is not mounted, its mount point (e.g. `/srv/dev-disk-by-uuid-â€
 - `destination` must already exist (it is no longer created) and must be on a different filesystem than `/`, unless `allow_destination_on_root_fs: true` is set. Otherwise the services stage fails before anything is deleted or written.
 - Every `fs.folder` and every `borg.folders[].folder` must exist and must not be empty. An `fs` source that fails this check fails that service. A borg source that fails it is skipped (no `create`, no `prune`), the other borg entries still run, and the run exits with an error.
 
+### `fs`
+
+Copied with `rsync -a`. rsync's exit code 24 ("some files vanished before they could be transferred") counts as success: the file was deleted while rsync ran, typically a log or cache entry, so nothing that still exists is missing. The vanished files are logged at warning level (in the log file, not in the cron mail). Any other non-zero exit fails the service and logs rsync's last 30 error lines.
+
 ### `fs.include` / `fs.exclude`
 
 `fs.exclude` and `fs.include` accept a list of [rsync filter patterns](https://download.samba.org/pub/rsync/rsync.1#FILTER_RULES) anchored at `fs.folder`. A leading `/` anchors the pattern to the source root, otherwise it matches anywhere in the tree. Use `dir/***` to match a directory and everything under it recursively.

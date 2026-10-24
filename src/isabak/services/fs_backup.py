@@ -1,11 +1,16 @@
 from src.isabak.helpers import check_source, replace_env_vars, run_command
 from os.path import join as path_join
 from os import makedirs
+import subprocess
 from src.isabak.logs import get_logger
 
 logger = get_logger(__name__)
 
 rsync_timeout = 2 * 3600
+# "some files vanished before they could be transferred"
+rsync_vanished = 24
+# enough to see which files failed without flooding the email
+stderr_lines = 30
 
 
 def fs_backup(service_name: str, service_options: dict, destination: str) -> bool:
@@ -44,15 +49,35 @@ def fs_backup(service_name: str, service_options: dict, destination: str) -> boo
     cmd += [folder, destination]
 
     try:
-        run_command(cmd, timeout=rsync_timeout, check=True)
+        process = run_command(cmd, timeout=rsync_timeout, stderr=subprocess.PIPE)
     except Exception as e:
         logger.exception(e, stack_info=True)
+        return False
+
+    errors = tail(process.stderr)
+    if process.returncode == rsync_vanished:
+        # a file deleted while rsync ran (a log, a cache entry) no longer exists,
+        # so nothing is missing from the copy: logged, not alerted every night
+        logger.warning(f"{service_name}.fs files vanished during the copy\n{errors}")
+    elif process.returncode != 0:
+        logger.error(f"{service_name}.fs rsync exited with {process.returncode}")
+        if errors:
+            logger.error(errors)
         return False
 
     logger.debug(f"copied {folder} to {destination}")
 
     logger.debug("fs backup completed successfully")
     return True
+
+
+def tail(stderr: bytes | None) -> str:
+    lines = (stderr or b"").decode(errors="replace").strip().splitlines()
+    if len(lines) > stderr_lines:
+        lines = [f"... {len(lines) - stderr_lines} earlier lines skipped"] + lines[
+            -stderr_lines:
+        ]
+    return "\n".join(lines)
 
 
 def check_options(
