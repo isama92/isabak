@@ -86,7 +86,10 @@ def services_backup(config: dict) -> bool:
                 )
             )
 
-        if not all(results):
+        if not results:
+            logger.error(f"{service_name} has no backup type configured")
+            failed_services.append(service_name)
+        elif not all(results):
             failed_services.append(service_name)
 
         logger.info(f"{service_name} finished")
@@ -105,6 +108,9 @@ def check_options(destination, services) -> bool:
         return False
     if not isinstance(services, list):
         logger.error("services is malformed")
+        return False
+    if not services:
+        logger.error("services is empty")
         return False
     for service in services:
         if not isinstance(service, dict):

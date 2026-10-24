@@ -26,7 +26,7 @@ def main():
     services_ok = True
     borg_ok = True
 
-    if config.get("services"):
+    if "services" in config:
         services_ok = services_backup(config)
 
     if config.get("borg"):
