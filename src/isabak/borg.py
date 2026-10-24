@@ -1,5 +1,5 @@
 import subprocess
-from os import sep
+from os import environ, sep
 from os.path import realpath
 from time import monotonic
 from src.isabak.helpers import check_source, replace_env_vars, run_command
@@ -144,7 +144,10 @@ def check_keep(keep) -> dict | None:
 
 
 def borg_env(base_repository: str, passphrase: str, entry: dict) -> dict:
+    # on top of the inherited environment, so PATH, HOME, LANG, SSH_AUTH_SOCK and
+    # any BORG_* settings from vars still reach borg and ssh
     return {
+        **environ,
         "BORG_REPO": base_repository + entry.get("repository"),
         "BORG_PASSPHRASE": passphrase,
     }

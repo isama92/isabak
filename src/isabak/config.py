@@ -1,5 +1,5 @@
 from src.isabak.logs import get_logger
-from yaml import safe_load as yaml_load
+from yaml import YAMLError, safe_load as yaml_load
 from json import load as json_load
 from os import getenv
 from os import chmod, lstat, makedirs, rename, stat, walk
@@ -47,12 +47,22 @@ def load_config() -> dict | None:
     logger.debug(f"loading {config_file_path}")
 
     try:
-        f = open(config_file_path, "r")
+        with open(config_file_path, "r") as f:
+            config = yaml_load(f)
     except FileNotFoundError:
         logger.error(f"{config_file_path} not found")
         return None
-
-    config = yaml_load(f)
+    except OSError as e:
+        logger.error(f"{config_file_path} could not be read ({e.strerror})")
+        return None
+    except YAMLError as e:
+        # only the problem and its position: the full message quotes the
+        # offending line, which can be a password
+        mark = getattr(e, "problem_mark", None)
+        where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+        problem = getattr(e, "problem", None) or "syntax error"
+        logger.error(f"{config_file_path} is not valid yaml{where}: {problem}")
+        return None
 
     if not isinstance(config, dict):
         logger.error(f"{config_file_path} is empty or malformed")
