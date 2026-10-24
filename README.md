@@ -40,7 +40,7 @@ Unknown keys at the top level, in a service entry, in `borg` or in a `borg.folde
 - `DOMAIN`: same as yaml
 - `DESTINATION`: same as yaml
 - `LOG_LEVEL`: possible values are `error`, `warning`, `info`, `debug`, default is `error`. Applies to the console, which is what cron emails.
-- `LOG_FILE` (optional): path of a log file, e.g. `/var/log/isabak/isabak.log`. It records at `info` level (or `debug` with `LOG_LEVEL=debug`) whatever `LOG_LEVEL` is, so successful runs leave a history while the console stays quiet. Rotated at midnight, 30 days kept. The log files are created with mode `0600`. A folder isabak has to create for it gets mode `0700`. An existing folder is left as it is, but it must not be writable by other users (`/var/log` and `/var/log/isabak` are fine, `/tmp` is refused at start-up), because isabak runs as root and another user could otherwise swap the log for a link to a different file.
+- `LOG_FILE` (optional): path of a log file, e.g. `/var/log/isabak/isabak.log`. It records at `info` level (or `debug` with `LOG_LEVEL=debug`) whatever `LOG_LEVEL` is, so successful runs leave a history while the console stays quiet. Rotated at midnight, 30 days kept. The log files are created with mode `0600`. A folder isabak has to create for it gets mode `0700`. An existing folder is left as it is, but every folder from `/` down to the log must be owned by root and not writable by group or others (`/var/log` and `/var/log/isabak` are fine, anything under `/tmp` or a user's home is refused at start-up), because isabak runs as root and another user could otherwise swap a folder or the log for a link to a different file.
 
 ### Env to Yaml mapping
 

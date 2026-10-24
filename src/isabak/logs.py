@@ -8,12 +8,13 @@ from os import (
     close,
     fchmod,
     fstat,
+    geteuid,
     getenv,
     makedirs,
     open as os_open,
     stat as os_stat,
 )
-from os.path import abspath, dirname, exists as path_exists
+from os.path import dirname, exists as path_exists, realpath
 from stat import S_ISREG
 from dotenv import load_dotenv
 
@@ -57,20 +58,32 @@ class PrivateLogFileHandler(TimedRotatingFileHandler):
         return open(fd, self.mode, encoding=self.encoding, errors=self.errors)
 
 
+def check_log_folder(folder: str):
+    # every folder from / down to the log must belong to root (or us) and not be
+    # writable by others, otherwise another user could swap one of them for a
+    # link after this check. existing folders are never chmodded, /var/log stays
+    current = folder
+    while True:
+        info = os_stat(current)
+        if info.st_uid not in (0, geteuid()) or info.st_mode & 0o022:
+            raise ValueError(
+                f"LOG_FILE folder {current} is owned or writable by another user, "
+                "use a root-only folder such as /var/log/isabak"
+            )
+        parent = dirname(current)
+        if parent == current:
+            return
+        current = parent
+
+
 def add_log_file(path: str, console_level: int):
     # the console (cron mail) stays at LOG_LEVEL, the file always keeps the info
     # history: stage boundaries, the summary, warnings such as vanished files
-    folder = dirname(abspath(path))
+    folder = dirname(realpath(path))
     if not path_exists(folder):
         # mode applies to the new folder, the umask can only remove bits
         makedirs(folder, mode=0o700)
-    elif os_stat(folder).st_mode & 0o022:
-        # another user could swap the log or its rotated files for symlinks;
-        # an existing folder is never chmodded, /var/log stays as it is
-        raise ValueError(
-            f"LOG_FILE folder {folder} is writable by other users, "
-            "use a root-only folder such as /var/log/isabak"
-        )
+    check_log_folder(folder)
     handler = PrivateLogFileHandler(
         path, when="midnight", backupCount=log_file_days, encoding="utf-8"
     )
