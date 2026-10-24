@@ -1,4 +1,4 @@
-from src.isabak.logs import get_logger
+from src.isabak.logs import get_logger, project_file
 from yaml import YAMLError, safe_load as yaml_load
 from json import load as json_load
 from os import getenv
@@ -44,10 +44,11 @@ borg_folder_keys = {"repository", "folder", "compression"}
 
 
 def load_config() -> dict | None:
-    logger.debug(f"loading {config_file_path}")
+    path = project_file(config_file_path)
+    logger.debug(f"loading {path}")
 
     try:
-        with open(config_file_path, "r") as f:
+        with open(path, "r") as f:
             config = yaml_load(f)
     except FileNotFoundError:
         logger.error(f"{config_file_path} not found")

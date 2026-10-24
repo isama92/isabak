@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Install runtime deps (Python 3.12+, see __pycache__ tags)
 pip install -r requirements.txt
 
-# Bootstrap config (both files are required at runtime in the working dir)
+# Bootstrap config (read from the working dir, else from the project root)
 cp .env.example .env
 cp config.yaml.example config.yaml
 
@@ -34,7 +34,7 @@ The process must run on the Docker host (it shells out to `docker exec` / `docke
 Top-level `main.py` is a thin shim around `src.isabak.main:main`. The real pipeline (`src/isabak/main.py`) is strictly sequential:
 
 1. **Logging bootstrap is implicit** (with an optional `LOG_FILE`: a `TimedRotatingFileHandler`, midnight, 30 days, at `min(INFO, LOG_LEVEL)`; `PrivateLogFileHandler` opens every file, also after rotation, with `O_NOFOLLOW`, requires a regular single-link file and sets `0600` through `fchmod` on the descriptor; a missing folder is created with mode `0700`; `check_log_folder()` walks `realpath` of the folder up to `/` and refuses any component not owned by root (or the running uid) or writable by group or others; existing folders are never chmodded; the console handler keeps `LOG_LEVEL`, so cron mail is unchanged) — `src/isabak/logs.py` loads `.env` (if present) and calls `logging.basicConfig` *at module import*, so by the time any other module's `logger = get_logger(__name__)` runs, the root logger is configured. There is no explicit setup call in `main()`. If you add a new top-level module, ensure it imports `logs.py` (directly or transitively) before any logging occurs.
-2. `load_config()` — parses `config.yaml` from CWD; returns `None` and aborts on a missing, unreadable, empty or malformed file. A YAML syntax error is reported with its line and column only, never the offending line, which could hold a password.
+2. `load_config()` — parses `config.yaml` from CWD, or from the project root when CWD has none (`project_file()` in `logs.py`, also used for `.env`); returns `None` and aborts on a missing, unreadable, empty or malformed file. A YAML syntax error is reported with its line and column only, never the offending line, which could hold a password.
 3. `merge_config()` — overlays env onto YAML. Only `DOMAIN` and `DESTINATION` are merged here; everything else (DB credentials, borg passphrase, etc.) lives in YAML only.
 4. `services_backup(config, report)` runs whenever the `services` key is present, so an empty or `null` value fails validation instead of being skipped. It returns `False` if any service failed or a service has no backup type configured (e.g. a misspelt key). Without a `services` key the run is Borg-only and prune is allowed.
 5. `check_unknown_keys()` (`src/isabak/config.py`) rejects unknown keys at the top level, per service, in `borg` and per `borg.folders` entry. It records a failed step and blocks prune, but the run continues. When adding a config option, add it to the matching allow-list there.

@@ -18,6 +18,8 @@ Install all the dependencies by running `pip install -r requirements.txt`.
 
 Run `cp .env.example .env` and `cp config.yaml.example config.yaml` to create the base config files and edit them as needed.
 
+isabak reads `config.yaml` and `.env` from the current folder if they are there, otherwise from its own folder (next to `main.py`), so it also works from cron without a `cd`.
+
 The `.env` variable will override the `config.yaml` variables.
 e.g. if you set both the `destination` in the `config.yaml` and the `DESTINATION` in the `.env`, the `.env` value will be used.
 

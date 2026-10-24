@@ -14,14 +14,24 @@ from os import (
     open as os_open,
     stat as os_stat,
 )
-from os.path import dirname, exists as path_exists, realpath
+from os.path import abspath, dirname, exists as path_exists, join as path_join, realpath
 from stat import S_ISREG
 from dotenv import load_dotenv
 
 env_file_path = ".env"
+# the folder holding main.py, src/isabak/logs.py is two levels below it
+project_root = dirname(dirname(dirname(abspath(__file__))))
 log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 # one file per day, a month of history
 log_file_days = 30
+
+
+def project_file(name: str) -> str:
+    # the current folder wins, as before; otherwise the project folder, so a
+    # cron line without "cd" still finds config.yaml and .env
+    if path_exists(name):
+        return name
+    return path_join(project_root, name)
 
 
 def get_logger(name: str):
@@ -94,8 +104,8 @@ def add_log_file(path: str, console_level: int):
 
 # Bootstrap on first import so module-level get_logger() calls elsewhere
 # resolve against a configured root logger.
-if path_exists(env_file_path):
-    load_dotenv(env_file_path)
+if path_exists(project_file(env_file_path)):
+    load_dotenv(project_file(env_file_path))
 
 console_level = get_log_level()
 logging.basicConfig(level=console_level, format=log_format)
