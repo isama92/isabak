@@ -44,6 +44,9 @@ services:
         metadata: false
         trickplay: false
         subtitles: false
+    sqlite:
+      files:
+        - "/home/user/your_service_files/data/app.db"
 borg:
   repository: "ssh://user@host:/"
   passphrase: "your-passphrase"

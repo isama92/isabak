@@ -4,6 +4,7 @@ from src.isabak.services.mariadb_backup import mariadb_backup
 from src.isabak.services.postgres_backup import postgres_backup
 from src.isabak.services.arr_backup import arr_backup
 from src.isabak.services.jellyfin_backup import jellyfin_backup
+from src.isabak.services.sqlite_backup import sqlite_backup
 from src.isabak.logs import get_logger
 from src.isabak.config import get_base_destination
 from src.isabak.report import RunReport, describe_error
@@ -128,6 +129,19 @@ def services_backup(config: dict, report: RunReport) -> bool:
                     service_name,
                     service.get("jellyfin"),
                     config.get("domain"),
+                    destination,
+                )
+            )
+
+        if service.get("sqlite") is not None:
+            results.append(
+                run_step(
+                    report,
+                    service_name,
+                    "sqlite",
+                    sqlite_backup,
+                    service_name,
+                    service.get("sqlite"),
                     destination,
                 )
             )

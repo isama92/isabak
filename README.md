@@ -86,6 +86,28 @@ Drives Jellyfin's built-in backup feature (Jellyfin 10.10+) through the REST API
 
 You can use `fs` and `jellyfin` on the same service entry — `fs` covers everything outside the DB (settings, plugins, etc., with whatever excludes you set), `jellyfin` covers the DB consistently.
 
+### `sqlite`
+
+Takes a consistent copy of SQLite databases while the app keeps running, using SQLite's online backup API (Python's built-in `sqlite3`, nothing to install). Copying a live database with `rsync` can capture the main file and its `-wal` at different moments and produce a broken or incomplete copy, so use this for any app that stores its data in SQLite.
+
+```yaml
+services:
+  - name: navidrome
+    fs:
+      folder: "${SRV_DIR_DOCKER}/navidrome/data"
+      exclude: ["/navidrome.db*"]   # optional, skip the live database in the plain copy
+    sqlite:
+      files:
+        - "${SRV_DIR_DOCKER}/navidrome/data/navidrome.db"
+```
+
+- `files` (required): host-side paths of the database files, `${VAR}` supported. File names must be unique within a service.
+- Each file must exist, be non-empty and start with the SQLite header. It is opened read-only, copied to `<destination>/isabak/<name>/sqlite/<file>` through a `.tmp` file, converted to a single self-contained file (`journal_mode=DELETE`), checked with `PRAGMA integrity_check` and only then renamed to its final name.
+- If opening the database creates a `-wal` or `-shm` file next to it, isabak gives that file to the database's owner so the app is never locked out.
+- Works on local disks. Do not use it for databases on NFS or SMB shares, where SQLite locking is unreliable.
+
+**Restore:** stop the app, copy the `.db` file back over the original, delete any `-wal` and `-shm` files next to it, start the app.
+
 ## TODO
 
 ### Features

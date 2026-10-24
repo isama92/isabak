@@ -19,7 +19,16 @@ top_level_keys = {
     "services",
     "borg",
 }
-service_keys = {"name", "fs", "mysql", "mariadb", "postgres", "arr", "jellyfin"}
+service_keys = {
+    "name",
+    "fs",
+    "mysql",
+    "mariadb",
+    "postgres",
+    "arr",
+    "jellyfin",
+    "sqlite",
+}
 borg_keys = {"repository", "passphrase", "folders"}
 borg_folder_keys = {"repository", "folder", "compression"}
 
