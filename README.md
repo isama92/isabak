@@ -18,7 +18,9 @@ Install all the dependencies by running `pip install -r requirements.txt`.
 
 Run `cp .env.example .env` and `cp config.yaml.example config.yaml` to create the base config files and edit them as needed.
 
-isabak reads `config.yaml` and `.env` from the current folder if they are there, otherwise from its own folder (next to `main.py`), so it also works from cron without a `cd`.
+isabak reads `config.yaml` from the current folder if it is there, otherwise from its own folder (next to `main.py`), so it also works from cron without a `cd`. `.env` is always read from the same folder as `config.yaml`, never from the other one.
+
+Put passwords, API keys and the borg passphrase in quotes. YAML reads some unquoted values as numbers and changes them, e.g. `0755` becomes `493` and `12:30` becomes `750`. isabak logs a warning when a secret is not quoted.
 
 The `.env` variable will override the `config.yaml` variables.
 e.g. if you set both the `destination` in the `config.yaml` and the `DESTINATION` in the `.env`, the `.env` value will be used.

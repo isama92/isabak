@@ -2,6 +2,9 @@ import subprocess
 from os import getenv, scandir
 from os.path import isdir as path_isdir
 from re import compile as re_compile
+from src.isabak.logs import get_logger
+
+logger = get_logger(__name__)
 
 # how long a process gets to exit after SIGTERM before it is killed
 stop_grace_seconds = 60
@@ -16,13 +19,26 @@ def strip_control_characters(text: str) -> str:
 
 
 def as_text(value) -> str | None:
-    # yaml reads "password: 12345" as a number; it always worked as text, so
-    # numbers stay accepted, anything else (missing, a list) is refused
+    # yaml reads "db_name: 12345" as a number; numbers are accepted as text,
+    # anything else (missing, true, a list) is refused
     if isinstance(value, bool):
         return None
     if isinstance(value, (str, int, float)):
         return str(value)
     return None
+
+
+def as_secret(value, name: str) -> str | None:
+    # an unquoted secret can reach isabak changed: yaml reads 0755 as 493 and
+    # 12:30 as 750. still accepted, the login fails loudly anyway, but say why.
+    # never log the value itself
+    text = as_text(value)
+    if text is not None and not isinstance(value, str):
+        logger.warning(
+            f"{name} is not quoted text in config.yaml, yaml may have changed "
+            "its value; put it in quotes"
+        )
+    return text
 
 
 def run_command(

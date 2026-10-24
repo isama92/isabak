@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from os import environ, sep
 from os.path import realpath
 from time import monotonic
-from src.isabak.helpers import as_text, check_source, replace_env_vars, run_command
+from src.isabak.helpers import as_secret, check_source, replace_env_vars, run_command
 from src.isabak.logs import get_logger
 from src.isabak.report import RunReport, describe_error
 
@@ -245,7 +245,7 @@ class BorgOptions:
 
 
 def check_options(repository, passphrase, folders) -> BorgOptions | None:
-    passphrase = as_text(passphrase)
+    passphrase = as_secret(passphrase, "borg.passphrase")
     if not isinstance(repository, str):
         logger.error("borg.repository is required")
         return None

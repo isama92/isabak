@@ -3,7 +3,7 @@ from os.path import join as path_join
 from os import makedirs, remove
 import subprocess
 from time import monotonic
-from src.isabak.helpers import as_text, run_command, stop_process
+from src.isabak.helpers import as_secret, as_text, run_command, stop_process
 from src.isabak.logs import get_logger
 from src.isabak.verify import mysql_dump_marker, verify_sql_gzip
 
@@ -133,7 +133,7 @@ def check_options(
     db_name = as_text(service_options.get("db_name"))
     db_container = as_text(db_options.get("container"))
     db_username = as_text(db_options.get("username"))
-    db_password = as_text(db_options.get("password"))
+    db_password = as_secret(db_options.get("password"), f"{kind}.password")
     routines = db_options.get("routines", False)
 
     if not isinstance(db_name, str):

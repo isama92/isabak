@@ -5,7 +5,7 @@ from os import listdir, makedirs
 from os.path import isfile as path_isfile, join as path_join
 from shutil import copy2 as shutil_copy2
 from dataclasses import dataclass
-from src.isabak.helpers import as_text, replace_env_vars
+from src.isabak.helpers import as_secret, replace_env_vars
 from src.isabak.logs import get_logger
 from src.isabak.verify import verify_zip
 
@@ -255,7 +255,7 @@ def check_options(
 ) -> ArrOptions | None:
     subdomain = service_options.get("subdomain")
     endpoint = service_options.get("endpoint")
-    api_key = as_text(service_options.get("api_key"))
+    api_key = as_secret(service_options.get("api_key"), f"{service_name}.arr.api_key")
     folder = service_options.get("folder")
     secure = service_options.get("secure", True)
 

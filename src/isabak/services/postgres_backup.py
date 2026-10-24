@@ -9,7 +9,7 @@ from re import compile as re_compile
 from tempfile import TemporaryFile
 from typing import IO
 from urllib.parse import quote
-from src.isabak.helpers import as_text, run_command, strip_control_characters
+from src.isabak.helpers import as_secret, as_text, run_command, strip_control_characters
 from src.isabak.logs import get_logger
 from src.isabak.verify import postgres_dump_marker, verify_sql_gzip
 
@@ -178,7 +178,11 @@ def check_options(
 ) -> PostgresOptions | None:
     values: dict[str, str] = {}
     for field in ("db_name", "container", "network", "username", "password"):
-        value = as_text(service_options.get(field))
+        if field == "password":
+            name = f"{service_name}.postgres.password"
+            value = as_secret(service_options.get(field), name)
+        else:
+            value = as_text(service_options.get(field))
         if value is None:
             logger.error(f"{service_name}.postgres.{field} is required")
             return None

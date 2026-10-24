@@ -19,6 +19,7 @@ from stat import S_ISREG
 from dotenv import load_dotenv
 
 env_file_path = ".env"
+config_file_path = "config.yaml"
 # the folder holding main.py, src/isabak/logs.py is two levels below it
 project_root = dirname(dirname(dirname(abspath(__file__))))
 log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -26,12 +27,18 @@ log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 log_file_days = 30
 
 
+def config_folder() -> str:
+    # the current folder wins when it holds config.yaml, as before; otherwise
+    # the project folder, so a cron line without "cd" still finds it
+    if path_exists(config_file_path):
+        return abspath(".")
+    return project_root
+
+
 def project_file(name: str) -> str:
-    # the current folder wins, as before; otherwise the project folder, so a
-    # cron line without "cd" still finds config.yaml and .env
-    if path_exists(name):
-        return name
-    return path_join(project_root, name)
+    # .env always comes from the folder that holds config.yaml: a stray .env
+    # elsewhere must not override the destination of the config being used
+    return path_join(config_folder(), name)
 
 
 def get_logger(name: str):

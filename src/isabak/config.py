@@ -1,4 +1,4 @@
-from src.isabak.logs import get_logger, project_file
+from src.isabak.logs import config_file_path, get_logger, project_file
 from yaml import YAMLError, safe_load as yaml_load
 from json import load as json_load
 from os import getenv
@@ -9,7 +9,6 @@ from shutil import disk_usage, rmtree
 logger = get_logger(__name__)
 
 app_name = "isabak"
-config_file_path = "config.yaml"
 # written into the tree by every run, read back to know whether that run succeeded
 manifest_name = "isabak-run.json"
 # the last complete tree, kept next to the new one until the next successful run
@@ -51,10 +50,10 @@ def load_config() -> dict | None:
         with open(path) as f:
             config = yaml_load(f)
     except FileNotFoundError:
-        logger.error(f"{config_file_path} not found")
+        logger.error(f"{path} not found")
         return None
     except OSError as e:
-        logger.error(f"{config_file_path} could not be read ({e.strerror})")
+        logger.error(f"{path} could not be read ({e.strerror})")
         return None
     except YAMLError as e:
         # only the problem and its position: the full message quotes the
@@ -62,14 +61,14 @@ def load_config() -> dict | None:
         mark = getattr(e, "problem_mark", None)
         where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
         problem = getattr(e, "problem", None) or "syntax error"
-        logger.error(f"{config_file_path} is not valid yaml{where}: {problem}")
+        logger.error(f"{path} is not valid yaml{where}: {problem}")
         return None
 
     if not isinstance(config, dict):
-        logger.error(f"{config_file_path} is empty or malformed")
+        logger.error(f"{path} is empty or malformed")
         return None
 
-    logger.debug(f"{config_file_path} loaded")
+    logger.debug(f"{path} loaded")
 
     return config
 
