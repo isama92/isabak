@@ -5,7 +5,7 @@ from src.isabak.logs import get_logger
 logger = get_logger(__name__)
 
 
-def borg_transfer(options: dict):
+def borg_transfer(options: dict, prune: bool = True) -> bool:
     logger.info("starting borg transfers")
 
     repository = options.get("repository")
@@ -13,23 +13,28 @@ def borg_transfer(options: dict):
     folders = options.get("folders")
 
     if not check_options(repository, passphrase, folders):
-        return
+        return False
+
+    if not prune:
+        logger.warning("borg prune and compact skipped, a service backup failed")
 
     for entry in folders:
         entry_borg_env = borg_env(repository, passphrase, entry)
         try:
             borg_create(entry_borg_env, entry)
-            borg_prune(entry_borg_env)
-            borg_compact(entry_borg_env)
+            if prune:
+                borg_prune(entry_borg_env)
+                borg_compact(entry_borg_env)
         except subprocess.CalledProcessError as e:
             logger.exception(e)
             log_std_outputs(e, True)
-            return
+            return False
         except Exception as e:
             logger.exception(e)
-            return
+            return False
 
     logger.info("borg transfers completed")
+    return True
 
 
 def borg_env(base_repository: str, passphrase: str, entry: dict) -> dict:

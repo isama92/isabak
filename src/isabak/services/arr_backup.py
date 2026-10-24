@@ -12,7 +12,7 @@ logger = get_logger(__name__)
 
 def arr_backup(
     service_name: str, service_options: dict, domain: str | None, destination: str
-):
+) -> bool:
     logger.debug(f"arr backup for service '{service_name}' started")
 
     subdomain = service_options.get("subdomain")
@@ -22,7 +22,7 @@ def arr_backup(
     secure = service_options.get("secure", True)
 
     if not check_options(service_name, domain, endpoint, api_key, folder):
-        return
+        return False
 
     destination = path_join(destination, "arr", "")
     makedirs(destination, exist_ok=True)
@@ -31,23 +31,24 @@ def arr_backup(
         folder = replace_env_vars(folder)
     except KeyError as e:
         logger.error(f"{e}, {service_name}.arr.folder")
-        return
+        return False
 
     base_url = build_base_url(domain, subdomain, endpoint, secure)
     headers = build_headers(api_key)
 
     if not delete_existing_backups(base_url, headers):
-        return
+        return False
 
     if not create_backup(base_url, headers):
-        return
+        return False
 
     if not wait_backup_creation(folder):
-        return
+        return False
 
     copy_backup(folder, destination)
 
     logger.debug(f"arr backup completed successfully")
+    return True
 
 
 def build_base_url(

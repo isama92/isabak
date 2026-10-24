@@ -12,19 +12,21 @@ from os.path import join as path_join
 logger = get_logger(__name__)
 
 
-def services_backup(config: dict):
+def services_backup(config: dict) -> bool:
     logger.info("starting services backup")
 
     base_destination = config.get("destination")
     services = config.get("services")
 
     if not check_options(base_destination, services):
-        return
+        return False
 
     base_destination = get_base_destination(base_destination)
 
     if base_destination is None:
-        return
+        return False
+
+    failed_services = []
 
     for service in services:
         service_name = service.get("name")
@@ -34,47 +36,67 @@ def services_backup(config: dict):
 
         makedirs(destination, exist_ok=True)
 
+        results = []
+
         if service.get("fs") is not None:
-            fs_backup(service_name, service.get("fs"), destination)
+            results.append(fs_backup(service_name, service.get("fs"), destination))
 
         if service.get("mysql") is not None:
-            mysql_backup(
-                service_name,
-                service.get("mysql"),
-                config.get("mysql", {}),
-                destination,
+            results.append(
+                mysql_backup(
+                    service_name,
+                    service.get("mysql"),
+                    config.get("mysql", {}),
+                    destination,
+                )
             )
 
         if service.get("mariadb") is not None:
-            mariadb_backup(
-                service_name,
-                service.get("mariadb"),
-                config.get("mariadb", {}),
-                destination,
+            results.append(
+                mariadb_backup(
+                    service_name,
+                    service.get("mariadb"),
+                    config.get("mariadb", {}),
+                    destination,
+                )
             )
 
         if service.get("postgres") is not None:
-            postgres_backup(service_name, service.get("postgres"), destination)
+            results.append(
+                postgres_backup(service_name, service.get("postgres"), destination)
+            )
 
         if service.get("arr") is not None:
-            arr_backup(
-                service_name,
-                service.get("arr"),
-                config.get("domain"),
-                destination,
+            results.append(
+                arr_backup(
+                    service_name,
+                    service.get("arr"),
+                    config.get("domain"),
+                    destination,
+                )
             )
 
         if service.get("jellyfin") is not None:
-            jellyfin_backup(
-                service_name,
-                service.get("jellyfin"),
-                config.get("domain"),
-                destination,
+            results.append(
+                jellyfin_backup(
+                    service_name,
+                    service.get("jellyfin"),
+                    config.get("domain"),
+                    destination,
+                )
             )
+
+        if not all(results):
+            failed_services.append(service_name)
 
         logger.info(f"{service_name} finished")
 
+    if failed_services:
+        logger.error(f"services backup failed for: {', '.join(failed_services)}")
+        return False
+
     logger.info("services backup completed")
+    return True
 
 
 def check_options(destination, services) -> bool:

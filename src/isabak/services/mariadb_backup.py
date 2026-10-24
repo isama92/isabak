@@ -8,7 +8,7 @@ logger = get_logger(__name__)
 
 def mariadb_backup(
     service_name: str, service_options: dict, db_options: dict, destination: str
-):
+) -> bool:
     logger.debug(f"mariadb backup for service '{service_name}' started")
 
     db_name = service_options.get("db_name")
@@ -17,7 +17,7 @@ def mariadb_backup(
     db_password = db_options.get("password")
 
     if not check_options(service_name, db_name, db_container, db_username, db_password):
-        return
+        return False
 
     destination = path_join(destination, "mariadb", "")
     makedirs(destination, exist_ok=True)
@@ -30,9 +30,10 @@ def mariadb_backup(
             delete_credentials(db_container)
     except Exception as e:
         logger.exception(e, stack_info=True)
-        return
+        return False
 
     logger.debug("mariadb backup completed successfully")
+    return True
 
 
 def create_credentials(db_container: str, db_username: str, db_password: str):

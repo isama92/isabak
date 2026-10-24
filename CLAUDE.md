@@ -36,8 +36,9 @@ Top-level `main.py` is a thin shim around `src.isabak.main:main`. The real pipel
 1. **Logging bootstrap is implicit** — `src/isabak/logs.py` loads `.env` (if present) and calls `logging.basicConfig` *at module import*, so by the time any other module's `logger = get_logger(__name__)` runs, the root logger is configured. There is no explicit setup call in `main()`. If you add a new top-level module, ensure it imports `logs.py` (directly or transitively) before any logging occurs.
 2. `load_config()` — parses `config.yaml` from CWD; returns `None` and aborts on missing/empty/malformed file.
 3. `merge_config()` — overlays env onto YAML. Only `DOMAIN` and `DESTINATION` are merged here; everything else (DB credentials, borg passphrase, etc.) lives in YAML only.
-4. `services_backup(config)` runs if `services` key exists.
-5. `borg_transfer(config["borg"])` runs if `borg` key exists. Borg runs *after* services, so it can pick up the freshly-written backup tree.
+4. `services_backup(config)` runs if `services` key exists. It returns `False` if any service failed.
+5. `borg_transfer(config["borg"], prune=services_ok)` runs if `borg` key exists. Borg runs *after* services, so it can pick up the freshly-written backup tree. When a service failed, `borg create` still runs but `prune`/`compact` are skipped, so retention never rotates out the last good archive.
+6. `main()` exits with status 1 if config loading, any service, or the borg stage failed.
 
 ### Destination layout (destructive)
 
@@ -47,9 +48,10 @@ Top-level `main.py` is a thin shim around `src.isabak.main:main`. The real pipel
 
 Each file in `src/isabak/services/` exports one `*_backup()` function and follows the same shape:
 
-- A top-level `check_options(...)` that logs `*.<field> is required` and returns `False` on missing config; the entry function early-returns on failure rather than raising.
-- The entry function `makedirs(destination, exist_ok=True)` for its own subfolder, then runs the work inside a `try/except Exception` that calls `logger.exception(...)` and returns. A failure in one service must not abort the rest of the run — keep this swallow-and-continue style when adding new backup types.
-- Wire any new service into `services_backup()` in `src/isabak/service.py` with the same `if service.get("<key>") is not None:` pattern.
+- The entry function returns `bool`: `True` on success, `False` on any failure. Never return `None`.
+- A top-level `check_options(...)` that logs `*.<field> is required` and returns `False` on missing config; the entry function returns `False` on failure rather than raising.
+- The entry function `makedirs(destination, exist_ok=True)` for its own subfolder, then runs the work inside a `try/except Exception` that calls `logger.exception(...)` and returns `False`. A failure in one service must not abort the rest of the run — keep this log-and-continue style when adding new backup types, but always report the failure through the return value.
+- Wire any new service into `services_backup()` in `src/isabak/service.py` with the same `if service.get("<key>") is not None: results.append(...)` pattern.
 
 Notable per-module specifics:
 
@@ -69,7 +71,6 @@ Anywhere a config value is a filesystem path (service `fs.folder`, `arr.folder`,
 ## Conventions worth preserving
 
 - No pull requests in this project: commit directly to the current branch (usually `main`).
-
 - Imports use the absolute `src.isabak....` prefix everywhere (see commit `a5020df import refactor`); the project is run from the repo root, not as an installed package.
 - Logging is the only user feedback channel — there is no CLI output otherwise. Keep `logger.info` for stage boundaries, `logger.debug` for per-step detail, `logger.error` for user-actionable config problems.
 - `check_options()` validators return bool and log; do not raise for config errors.

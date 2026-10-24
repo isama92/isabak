@@ -12,7 +12,7 @@ logger = get_logger(__name__)
 
 def jellyfin_backup(
     service_name: str, service_options: dict, domain: str | None, destination: str
-):
+) -> bool:
     logger.debug(f"jellyfin backup for service '{service_name}' started")
 
     subdomain = service_options.get("subdomain")
@@ -22,7 +22,7 @@ def jellyfin_backup(
     options = service_options.get("options", {})
 
     if not check_options(service_name, domain, api_key, folder):
-        return
+        return False
 
     destination = path_join(destination, "jellyfin", "")
     makedirs(destination, exist_ok=True)
@@ -31,24 +31,25 @@ def jellyfin_backup(
         folder = replace_env_vars(folder)
     except KeyError as e:
         logger.error(f"{e}, {service_name}.jellyfin.folder")
-        return
+        return False
 
     base_url = build_base_url(domain, subdomain, secure)
     headers = build_headers(api_key)
     body = build_options_body(options)
 
     if not delete_existing_backups(folder):
-        return
+        return False
 
     if not create_backup(base_url, headers, body):
-        return
+        return False
 
     if not wait_backup_creation(folder):
-        return
+        return False
 
     copy_backup(folder, destination)
 
     logger.debug("jellyfin backup completed successfully")
+    return True
 
 
 def build_base_url(domain: str, subdomain: str | None, secure: bool) -> str:

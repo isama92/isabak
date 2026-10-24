@@ -7,7 +7,7 @@ from src.isabak.logs import get_logger
 logger = get_logger(__name__)
 
 
-def fs_backup(service_name: str, service_options: dict, destination: str):
+def fs_backup(service_name: str, service_options: dict, destination: str) -> bool:
     logger.debug(f"fs backup for service '{service_name}' started")
 
     folder = service_options.get("folder")
@@ -15,7 +15,7 @@ def fs_backup(service_name: str, service_options: dict, destination: str):
     exclude = service_options.get("exclude") or []
 
     if not check_options(service_name, folder, include, exclude):
-        return
+        return False
 
     destination = path_join(destination, "fs", "")
     makedirs(destination, exist_ok=True)
@@ -24,7 +24,7 @@ def fs_backup(service_name: str, service_options: dict, destination: str):
         folder = replace_env_vars(folder)
     except KeyError as e:
         logger.error(f"{e}, {service_name}.fs.folder")
-        return
+        return False
 
     folder = path_join(folder, "")
 
@@ -32,7 +32,7 @@ def fs_backup(service_name: str, service_options: dict, destination: str):
         logger.error(
             f"{service_name}.fs.folder '{folder}' does not exist in filesystem"
         )
-        return
+        return False
 
     cmd = ["rsync", "-a"]
     for pattern in exclude:
@@ -47,11 +47,12 @@ def fs_backup(service_name: str, service_options: dict, destination: str):
         subprocess.run(cmd, check=True)
     except Exception as e:
         logger.exception(e, stack_info=True)
-        return
+        return False
 
     logger.debug(f"copied {folder} to {destination}")
 
     logger.debug("fs backup completed successfully")
+    return True
 
 
 def check_options(

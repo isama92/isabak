@@ -8,7 +8,7 @@ from src.isabak.logs import get_logger
 logger = get_logger(__name__)
 
 
-def postgres_backup(service_name: str, service_options: dict, destination: str):
+def postgres_backup(service_name: str, service_options: dict, destination: str) -> bool:
     logger.debug(f"postgres backup for service '{service_name}' started")
 
     db_name = service_options.get("db_name")
@@ -20,7 +20,7 @@ def postgres_backup(service_name: str, service_options: dict, destination: str):
     if not check_options(
         service_name, db_name, db_container, db_network, db_username, db_password
     ):
-        return
+        return False
 
     destination = path_join(destination, "postgres", "")
     makedirs(destination, exist_ok=True)
@@ -32,14 +32,14 @@ def postgres_backup(service_name: str, service_options: dict, destination: str):
     if not create_backup(
         db_name, db_container, db_network, db_username, db_password, tmp_folder
     ):
-        return
+        return False
 
     backup_path = path_join(tmp_folder, "last", f"{db_name}-latest.sql.gz")
     backup_path = path_realpath(backup_path)
 
     if not path_exists(backup_path):
         logger.error(f"backup file {backup_path} does not exist")
-        return
+        return False
 
     backup_path_dest = path_join(destination, f"db_{db_name}.sql.gz")
 
@@ -50,6 +50,7 @@ def postgres_backup(service_name: str, service_options: dict, destination: str):
     logger.debug("tmp folder removed")
 
     logger.debug("postgres backup completed successfully")
+    return True
 
 
 def create_backup(
