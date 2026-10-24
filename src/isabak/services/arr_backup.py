@@ -39,13 +39,19 @@ def arr_backup(
     if not delete_existing_backups(base_url, headers):
         return False
 
+    existing_files = list_backup_files(folder)
+    if existing_files is None:
+        return False
+
     if not create_backup(base_url, headers):
         return False
 
-    if not wait_backup_creation(folder):
+    new_files = wait_backup_creation(folder, existing_files)
+    if not new_files:
         return False
 
-    copy_backup(folder, destination)
+    if not copy_backup(folder, new_files, destination):
+        return False
 
     logger.debug(f"arr backup completed successfully")
     return True
@@ -129,26 +135,51 @@ def create_backup(base_url: str, headers: dict) -> bool:
     return True
 
 
-def wait_backup_creation(folder: str) -> bool:
+def list_backup_files(folder: str) -> set[str] | None:
+    try:
+        return {
+            file for file in listdir(folder) if path_isfile(path_join(folder, file))
+        }
+    except OSError as e:
+        logger.error(f"backup folder '{folder}' could not be read: {e}")
+        return None
+
+
+def wait_backup_creation(folder: str, existing_files: set[str]) -> list[str]:
     loop_n = 0
     while True:
-        if listdir(folder):
-            return True
+        files = list_backup_files(folder)
+        if files is None:
+            return []
+        new_files = files - existing_files
+        if new_files:
+            logger.debug(f"new backup files: {', '.join(sorted(new_files))}")
+            return sorted(new_files)
         if loop_n > 10:
             logger.error("backup was not created in time")
-            return False
+            return []
         sleep(1)
         loop_n += 1
 
 
-def copy_backup(folder: str, destination: str):
-    for file in listdir(folder):
-        src = path_join(folder, file)
-        if not path_isfile(src):
-            continue
-        dest = path_join(destination, file)
-        shutil_copy2(src, dest)
-        logger.debug(f"copied {src} to {dest}")
+def copy_backup(folder: str, files: list[str], destination: str) -> bool:
+    copied = 0
+    try:
+        for file in files:
+            src = path_join(folder, file)
+            dest = path_join(destination, file)
+            shutil_copy2(src, dest)
+            logger.debug(f"copied {src} to {dest}")
+            copied += 1
+    except OSError as e:
+        logger.exception(e, stack_info=True)
+        return False
+
+    if copied == 0:
+        logger.error("no backup files were copied")
+        return False
+
+    return True
 
 
 def check_options(

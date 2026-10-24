@@ -57,7 +57,7 @@ Notable per-module specifics:
 
 - **mysql / mariadb**: write a temporary `/backup.cnf` inside the DB container via `docker exec`, run the dump piped through `gzip` on the host, then delete the cnf file. MariaDB uses `/usr/bin/mariadb-dump` (not `mysqldump`) — the README notes this is required for MariaDB ≥ 10.5.
 - **postgres**: does *not* use the running DB container. Spawns a one-shot `prodrigestivill/postgres-backup-local` container on the configured Docker `network`, mounts a `tmp/` dir, then moves the produced `latest` symlink target out and `rmtree`s the tmp dir.
-- **arr**: hits the *Arr REST API (`/system/backup`, `POST /command {"name":"Backup"}`), polls the on-disk `folder` for up to ~10s waiting for the new backup file to appear, then `shutil.copy2`s everything in that folder. `subdomain` is optional; when omitted the URL is built directly against `domain`.
+- **arr**: hits the *Arr REST API (`/system/backup`, `POST /command {"name":"Backup"}`), snapshots the files in the on-disk `folder` before the request, polls for up to ~10s until a file not in that snapshot appears, then `shutil.copy2`s only those new files. Leftover files never count as the new backup, and copying nothing is a failure. `subdomain` is optional; when omitted the URL is built directly against `domain`.
 - **fs**: plain `rsync -a <folder>/ <destination>/fs/`. The trailing slash on `folder` is added by `path_join(folder, "")` and matters for rsync semantics.
 
 ### Path env-var interpolation
