@@ -68,6 +68,8 @@ Anywhere a config value is a filesystem path (service `fs.folder`, `arr.folder`,
 
 ## Conventions worth preserving
 
+- No pull requests in this project: commit directly to the current branch (usually `main`).
+
 - Imports use the absolute `src.isabak....` prefix everywhere (see commit `a5020df import refactor`); the project is run from the repo root, not as an installed package.
 - Logging is the only user feedback channel — there is no CLI output otherwise. Keep `logger.info` for stage boundaries, `logger.debug` for per-step detail, `logger.error` for user-actionable config problems.
 - `check_options()` validators return bool and log; do not raise for config errors.

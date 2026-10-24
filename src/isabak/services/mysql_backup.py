@@ -1,5 +1,5 @@
 from os.path import join as path_join
-from os import makedirs
+from os import makedirs, remove
 import subprocess
 from src.isabak.logs import get_logger
 
@@ -24,8 +24,10 @@ def mysql_backup(
 
     try:
         create_credentials(db_container, db_username, db_password)
-        create_backup(db_name, db_container, destination)
-        delete_credentials(db_container)
+        try:
+            create_backup(db_name, db_container, destination)
+        finally:
+            delete_credentials(db_container)
     except Exception as e:
         logger.exception(e, stack_info=True)
         return
@@ -47,15 +49,24 @@ def create_backup(db_name: str, db_container: str, destination: str):
         "/usr/bin/mysqldump",
         "--defaults-extra-file=/backup.cnf",
         "--single-transaction",
+        "--set-gtid-purged=OFF",
         db_name,
     ]
 
     out_path = path_join(destination, "mysql.sql.gz")
     with open(out_path, "wb") as f:
-        gzip_proc = subprocess.Popen(dump_cmd, stdout=subprocess.PIPE)
-        gzip = subprocess.Popen(["gzip"], stdin=gzip_proc.stdout, stdout=f)
-        gzip_proc.stdout.close()
-        gzip.wait()
+        dump_proc = subprocess.Popen(dump_cmd, stdout=subprocess.PIPE)
+        gzip = subprocess.Popen(["gzip"], stdin=dump_proc.stdout, stdout=f)
+        dump_proc.stdout.close()
+        gzip_rc = gzip.wait()
+        dump_rc = dump_proc.wait()
+
+    if dump_rc != 0:
+        remove(out_path)
+        raise subprocess.CalledProcessError(dump_rc, dump_cmd)
+    if gzip_rc != 0:
+        remove(out_path)
+        raise subprocess.CalledProcessError(gzip_rc, ["gzip"])
 
 
 def check_options(
