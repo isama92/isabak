@@ -3,6 +3,11 @@ from os.path import join as path_join, exists as path_exists, realpath as path_r
 from shutil import move as shutil_move
 from shutil import rmtree as shutil_rmtree
 import subprocess
+from io import SEEK_END
+from re import compile as re_compile
+from tempfile import TemporaryFile
+from typing import BinaryIO
+from urllib.parse import quote
 from src.isabak.helpers import run_command
 from src.isabak.logs import get_logger
 from src.isabak.verify import postgres_dump_marker, verify_sql_gzip
@@ -11,7 +16,13 @@ logger = get_logger(__name__)
 
 container_timeout = 3600
 # enough for the reason a dump failed without flooding the email
-output_lines = 50
+output_first_lines = 10
+output_last_lines = 40
+output_head_bytes = 8 * 1024
+output_tail_bytes = 32 * 1024
+# terminal escape sequences and control characters, except tab and newline
+control_characters = re_compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|[\x00-\x08\x0b-\x1f\x7f]")
+url_credentials = re_compile(r"(://[^:/@\s]+:)[^@\s]+(@)")
 
 
 def postgres_backup(service_name: str, service_options: dict, destination: str) -> bool:
@@ -89,41 +100,61 @@ def create_backup(
     ]
     # fmt: on
 
-    try:
-        process = run_command(
-            docker_cmd,
-            timeout=container_timeout,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            check=True,
-            env={**environ, "POSTGRES_PASSWORD": db_password},
-        )
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-        logger.exception(e, stack_info=True)
-        # the container's own output says why: wrong password, unknown host,
-        # pg_dump older than the server, ...
-        log_output(getattr(e, "stdout", None), db_password, logger.error)
-        shutil_rmtree(tmp_folder)
-        return False
+    # output goes to a file, not memory, so a runaway container cannot fill the
+    # ram, and what it printed before a timeout is still there to log
+    with TemporaryFile() as output:
+        try:
+            run_command(
+                docker_cmd,
+                timeout=container_timeout,
+                stdout=output,
+                stderr=subprocess.STDOUT,
+                check=True,
+                env={**environ, "POSTGRES_PASSWORD": db_password},
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            logger.exception(e, stack_info=True)
+            # the container's own output says why: wrong password, unknown host,
+            # pg_dump older than the server, ...
+            log_output(output, db_password, logger.error)
+            shutil_rmtree(tmp_folder)
+            return False
 
-    log_output(process.stdout, db_password, logger.debug)
+        log_output(output, db_password, logger.debug)
+
     logger.debug("backup created")
     return True
 
 
-def log_output(output: bytes | None, db_password: str, log):
-    if not output:
+def log_output(output: BinaryIO, db_password: str, log):
+    size = output.seek(0, SEEK_END)
+    if size == 0:
         return
-    text = output.decode(errors="replace").strip()
+    output.seek(0)
+    if size <= output_head_bytes + output_tail_bytes:
+        lines = clean_output(output.read(), db_password).splitlines()
+        skipped = len(lines) - output_first_lines - output_last_lines
+        if skipped > 0:
+            marker = f"... {skipped} lines skipped"
+            lines = lines[:output_first_lines] + [marker] + lines[-output_last_lines:]
+    else:
+        # only the start (first error) and the end (final error) are read
+        head = clean_output(output.read(output_head_bytes), db_password).splitlines()
+        output.seek(size - output_tail_bytes)
+        tail = clean_output(output.read(), db_password).splitlines()[1:]
+        marker = f"... {size - output_head_bytes - output_tail_bytes} bytes skipped"
+        lines = head[:output_first_lines] + [marker] + tail[-output_last_lines:]
+    # prefixed, so a line printed by the container cannot pass for an isabak log line
+    log("\n".join(f"container: {line}" for line in lines))
+
+
+def clean_output(data: bytes, db_password: str) -> str:
+    text = control_characters.sub("", data.decode(errors="replace"))
     # pg_dump does not print the password, masked anyway in case a future image does
     if db_password:
-        text = text.replace(db_password, "***")
-    lines = text.splitlines()
-    if len(lines) > output_lines:
-        lines = [f"... {len(lines) - output_lines} earlier lines skipped"] + lines[
-            -output_lines:
-        ]
-    log("\n".join(lines))
+        for secret in {db_password, quote(db_password, safe="")}:
+            text = text.replace(secret, "***")
+    return url_credentials.sub(r"\1***\2", text).strip()
 
 
 def check_options(
