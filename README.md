@@ -63,6 +63,22 @@ A folder `isabak` will be created at the `destination` and backups will be added
 
 If omitted, borg default compression will be set to `none`.
 
+### Borg retention and partial archives
+
+```yaml
+borg:
+  keep:                # optional, these are the defaults
+    daily: 7
+    weekly: 2
+    monthly: 1
+    partial_days: 7
+```
+
+- Complete archives are named `<hostname>-<date>` and pruned with `daily`, `weekly` and `monthly`. `daily` must be at least 1, so prune can never delete every archive.
+- When a service fails, the borg entry whose folder holds the `isabak` tree is archived as `partial-<hostname>-<date>`. Other entries (e.g. `/home`) keep their normal name, their content does not depend on the services. Partial archives never match the complete-archive pattern, so they never take a daily, weekly or monthly slot from a complete archive, and they are kept for `partial_days` days.
+- Prune and compact are still skipped after a failed run, partial archives are cleaned up on the next successful run.
+- Every run writes `isabak-run.json` into the `isabak` tree, so each archive contains the result of every step: open it first when restoring to see which services that archive really holds.
+
 ### Timeouts
 
 Every external command has a time limit, so one stuck command fails only its own service or borg repository instead of hanging the whole run:
@@ -135,7 +151,6 @@ services:
 - allow arrays in yaml config services, to have multiple fs or multiple DBs
 - add home assistant backups (ask creation through api like arr?)
 - better plex backups, they are huge
-- borg prune customisation (currently hard-coded `--keep-daily 7 --keep-weekly 2 --keep-monthly 1`)
 - automated tests
 - run services in parallel
 

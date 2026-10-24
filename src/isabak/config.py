@@ -29,7 +29,7 @@ service_keys = {
     "jellyfin",
     "sqlite",
 }
-borg_keys = {"repository", "passphrase", "folders"}
+borg_keys = {"repository", "passphrase", "folders", "keep"}
 borg_folder_keys = {"repository", "folder", "compression"}
 
 

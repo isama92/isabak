@@ -50,6 +50,11 @@ services:
 borg:
   repository: "ssh://user@host:/"
   passphrase: "your-passphrase"
+  keep:
+    daily: 7
+    weekly: 4
+    monthly: 3
+    partial_days: 7
   folders:
     - repository: "/docker-services"
       folder: "/home/user/backups"

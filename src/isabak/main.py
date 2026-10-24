@@ -1,4 +1,5 @@
 import sys
+from os.path import join as path_join
 from src.isabak.config import (
     app_name,
     check_unknown_keys,
@@ -51,6 +52,11 @@ def run(report: RunReport):
     if "services" in config:
         services_ok = services_backup(config, report)
 
+    # a failed service leaves the isabak tree incomplete, its archive is marked
+    partial_tree = None
+    if not services_ok and isinstance(config.get("destination"), str):
+        partial_tree = path_join(config["destination"], app_name)
+
     borg = config.get("borg")
     if borg is False:
         logger.info("borg disabled in config.yaml, no off-site copy made")
@@ -60,7 +66,12 @@ def run(report: RunReport):
         )
         report.add("borg", "config", False, 0, "missing or malformed")
     else:
-        borg_transfer(borg, report, prune=services_ok and config_ok)
+        borg_transfer(
+            borg,
+            report,
+            prune=services_ok and config_ok,
+            partial_tree=partial_tree,
+        )
 
 
 if __name__ == "__main__":

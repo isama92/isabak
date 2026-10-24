@@ -14,6 +14,8 @@ from time import monotonic
 
 logger = get_logger(__name__)
 
+manifest_name = "isabak-run.json"
+
 
 def services_backup(config: dict, report: RunReport) -> bool:
     logger.info("starting services backup")
@@ -155,12 +157,23 @@ def services_backup(config: dict, report: RunReport) -> bool:
 
         logger.info(f"{service_name} finished")
 
+    # goes into the borg archive with the backups it describes
+    write_manifest(base_destination, report)
+
     if failed_services:
         logger.error(f"services backup failed for: {', '.join(failed_services)}")
         return False
 
     logger.info("services backup completed")
     return True
+
+
+def write_manifest(base_destination: str, report: RunReport):
+    try:
+        report.write_manifest(path_join(base_destination, manifest_name))
+    except OSError as e:
+        logger.exception(e)
+        report.add("services", "manifest", False, 0, describe_error(e))
 
 
 def run_step(

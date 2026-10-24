@@ -1,4 +1,6 @@
 import subprocess
+from os import sep
+from os.path import realpath
 from time import monotonic
 from src.isabak.helpers import check_source, replace_env_vars, run_command
 from src.isabak.logs import get_logger
@@ -10,15 +12,28 @@ logger = get_logger(__name__)
 create_timeout = 4 * 3600
 maintenance_timeout = 3600
 
+# complete archives are pruned by these, archives from failed runs carry their own
+# prefix so they never take a daily, weekly or monthly slot from a complete one
+default_keep = {"daily": 7, "weekly": 2, "monthly": 1, "partial_days": 7}
+partial_prefix = "partial-"
 
-def borg_transfer(options: dict, report: RunReport, prune: bool = True) -> bool:
+
+def borg_transfer(
+    options: dict,
+    report: RunReport,
+    prune: bool = True,
+    partial_tree: str | None = None,
+) -> bool:
+    # partial_tree: the isabak tree when a service failed, the entry holding it
+    # is archived under the partial- prefix
     logger.info("starting borg transfers")
 
     repository = options.get("repository")
     passphrase = options.get("passphrase")
     folders = options.get("folders")
+    keep = check_keep(options.get("keep"))
 
-    if not check_options(repository, passphrase, folders):
+    if not check_options(repository, passphrase, folders) or keep is None:
         report.add("borg", "config", False, 0, "invalid borg configuration")
         return False
 
@@ -42,10 +57,11 @@ def borg_transfer(options: dict, report: RunReport, prune: bool = True) -> bool:
             continue
 
         entry_borg_env = borg_env(repository, passphrase, entry)
+        partial = partial_tree is not None and holds_tree(entry["folder"], partial_tree)
         try:
-            warned = borg_create(entry_borg_env, entry)
+            warned = borg_create(entry_borg_env, entry, partial)
             if prune:
-                borg_prune(entry_borg_env)
+                borg_prune(entry_borg_env, keep)
                 borg_compact(entry_borg_env)
         except Exception as e:
             logger.exception(e)
@@ -61,11 +77,14 @@ def borg_transfer(options: dict, report: RunReport, prune: bool = True) -> bool:
             failed = True
             continue
 
-        entry_note = note
+        notes = []
+        if partial:
+            notes.append("archived as partial, a service failed")
         if warned:
-            entry_note = "archive created with warnings, see log"
-            if note:
-                entry_note += f", {note}"
+            notes.append("archive created with warnings, see log")
+        if note:
+            notes.append(note)
+        entry_note = ", ".join(notes)
         report.add(
             "borg",
             entry["repository"],
@@ -95,6 +114,35 @@ def check_entry_source(entry: dict) -> str | None:
     return None
 
 
+def holds_tree(folder: str, tree: str) -> bool:
+    folder = realpath(replace_env_vars(folder))
+    tree = realpath(tree)
+    return tree == folder or tree.startswith(folder.rstrip(sep) + sep)
+
+
+def check_keep(keep) -> dict | None:
+    if keep is None:
+        return dict(default_keep)
+    if not isinstance(keep, dict):
+        logger.error("borg.keep must be a mapping")
+        return None
+    unknown = sorted(str(key) for key in keep if key not in default_keep)
+    if unknown:
+        logger.error(f"borg.keep.{unknown[0]} is not a known option")
+        return None
+    merged = {**default_keep, **keep}
+    for key, value in merged.items():
+        # bool is an int in python, "daily: yes" must not become 1
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            logger.error(f"borg.keep.{key} must be a whole number of 0 or more")
+            return None
+    # all zero would let prune delete every archive
+    if merged["daily"] < 1 or merged["partial_days"] < 1:
+        logger.error("borg.keep.daily and borg.keep.partial_days must be at least 1")
+        return None
+    return merged
+
+
 def borg_env(base_repository: str, passphrase: str, entry: dict) -> dict:
     return {
         "BORG_REPO": base_repository + entry.get("repository"),
@@ -102,7 +150,7 @@ def borg_env(base_repository: str, passphrase: str, entry: dict) -> dict:
     }
 
 
-def borg_create(env: dict, entry: dict) -> bool:
+def borg_create(env: dict, entry: dict, partial: bool = False) -> bool:
     # True when borg finished with warnings, exit code 1 still writes the archive
     folder = entry.get("folder")
     folder = replace_env_vars(folder)
@@ -117,7 +165,7 @@ def borg_create(env: dict, entry: dict) -> bool:
         "borg", "create",
         "--stats",
         "--compression", compression,
-        "::{hostname}-{now}",
+        f"::{partial_prefix if partial else ''}{{hostname}}-{{now}}",
         folder,
     ]
     # fmt: on
@@ -141,26 +189,33 @@ def borg_create(env: dict, entry: dict) -> bool:
     return False
 
 
-def borg_prune(env: dict):
+def borg_prune(env: dict, keep: dict):
     logger.debug(f"{env.get('BORG_REPO')} prune started")
+    # complete archives only, partial-{hostname}-* does not match {hostname}-*
     # fmt: off
-    borg_cmd = [
+    complete_cmd = [
         "borg", "prune",
         "--glob-archives", "{hostname}-*",
-        "--keep-daily", "7",
-        "--keep-weekly", "2",
-        "--keep-monthly", "1"
+        "--keep-daily", str(keep["daily"]),
+        "--keep-weekly", str(keep["weekly"]),
+        "--keep-monthly", str(keep["monthly"]),
+    ]
+    partial_cmd = [
+        "borg", "prune",
+        "--glob-archives", f"{partial_prefix}{{hostname}}-*",
+        "--keep-within", f"{keep['partial_days']}d",
     ]
     # fmt: on
-    process = run_command(
-        borg_cmd,
-        timeout=maintenance_timeout,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=True,
-        env=env,
-    )
-    log_std_outputs(process)
+    for borg_cmd in (complete_cmd, partial_cmd):
+        process = run_command(
+            borg_cmd,
+            timeout=maintenance_timeout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+            env=env,
+        )
+        log_std_outputs(process)
     logger.debug(f"{env.get('BORG_REPO')} prune completed")
 
 
