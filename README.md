@@ -102,8 +102,8 @@ services:
 ```
 
 - `files` (required): host-side paths of the database files, `${VAR}` supported. File names must be unique within a service.
-- Each file must exist, be non-empty and start with the SQLite header. It is opened read-only, copied to `<destination>/isabak/<name>/sqlite/<file>` through a `.tmp` file, converted to a single self-contained file (`journal_mode=DELETE`), checked with `PRAGMA integrity_check` and only then renamed to its final name.
-- If opening the database creates a `-wal` or `-shm` file next to it, isabak gives that file to the database's owner so the app is never locked out.
+- Each file must exist, be a regular file (symlinks are refused), be non-empty and start with the SQLite header. It is opened read-only (never read-write), copied to `<destination>/isabak/<name>/sqlite/<file>` through a `.tmp` file, converted to a single self-contained file (`journal_mode=DELETE`), checked with `PRAGMA integrity_check` and only then renamed to its final name.
+- If opening the database creates a `-wal` or `-shm` file next to it, isabak gives that file to the database's owner so the app is never locked out. It only does so for a regular, single-link file it just created, never through a symlink, because the folder is writable by the app.
 - Works on local disks. Do not use it for databases on NFS or SMB shares, where SQLite locking is unreliable.
 
 **Restore:** stop the app, copy the `.db` file back over the original, delete any `-wal` and `-shm` files next to it, start the app.

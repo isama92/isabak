@@ -7,22 +7,21 @@ from os import (
     close,
     fchown,
     fstat,
+    lstat,
     makedirs,
     open as os_open,
     remove,
     replace,
-    stat,
+    stat_result,
 )
-from stat import S_ISREG
 from os.path import (
     abspath,
     basename,
     exists as path_exists,
-    getsize,
-    isfile as path_isfile,
     join as path_join,
 )
 from pathlib import Path
+from stat import S_ISLNK, S_ISREG
 from src.isabak.helpers import replace_env_vars
 from src.isabak.logs import get_logger
 
@@ -75,9 +74,17 @@ def sqlite_backup(service_name: str, service_options: dict, destination: str) ->
 
 
 def check_database(source: str) -> str | None:
-    if not path_isfile(source):
+    # the folder is writable by the app, so a symlink there could point root at
+    # another service's database
+    try:
+        info = lstat(source)
+    except FileNotFoundError:
         return "does not exist, is its disk mounted?"
-    if getsize(source) == 0:
+    if S_ISLNK(info.st_mode):
+        return "is a symlink, refusing to follow it"
+    if not S_ISREG(info.st_mode):
+        return "is not a regular file"
+    if info.st_size == 0:
         return "is empty"
     with open(source, "rb") as f:
         if f.read(len(sqlite_header)) != sqlite_header:
@@ -88,26 +95,31 @@ def check_database(source: str) -> str | None:
 def backup_database(source: str, target: str):
     # the backup api takes a consistent snapshot while the app keeps writing,
     # unlike a file copy of the database and its -wal at different moments
+    identity = lstat(source)
     sidecars_before = {s for s in sidecar_suffixes if path_exists(source + s)}
     tmp = target + ".tmp"
     if path_exists(tmp):
         remove(tmp)
 
     try:
-        try:
-            copy_database(Path(abspath(source)).as_uri() + "?mode=ro", tmp)
-        except sqlite3.OperationalError as e:
-            # read-only opens of a WAL database can fail without a -shm file,
-            # a normal connection is safe because nothing is written through it
-            logger.debug(f"read-only open of {source} failed ({e}), retrying")
-            if path_exists(tmp):
-                remove(tmp)
-            copy_database(Path(abspath(source)).as_uri(), tmp)
+        # read-only only: since SQLite 3.22 this also works for a WAL database
+        # without a -shm, so a failure is a real error and never retried writable
+        copy_database(Path(abspath(source)).as_uri() + "?mode=ro", tmp)
+        if not same_file(identity, source):
+            raise ValueError(f"{source} was replaced during the backup")
         replace(tmp, target)
     finally:
         if path_exists(tmp):
             remove(tmp)
-        fix_sidecar_owner(source, sidecars_before)
+        fix_sidecar_owner(source, identity, sidecars_before)
+
+
+def same_file(identity: stat_result, path: str) -> bool:
+    try:
+        current = lstat(path)
+    except FileNotFoundError:
+        return False
+    return (current.st_dev, current.st_ino) == (identity.st_dev, identity.st_ino)
 
 
 def copy_database(source_uri: str, tmp: str):
@@ -125,11 +137,11 @@ def copy_database(source_uri: str, tmp: str):
         raise ValueError(f"integrity check of the copy failed: {details}")
 
 
-def fix_sidecar_owner(source: str, sidecars_before: set[str]):
+def fix_sidecar_owner(source: str, owner: stat_result, sidecars_before: set[str]):
     # a -wal or -shm created by root would lock the app out of its own database.
-    # the folder is writable by the app, so never follow a symlink planted there
-    # and only touch regular files root created, through one descriptor (no race)
-    owner = stat(source)
+    # the folder is writable by the app, so only touch a regular file root just
+    # created next to the database: no symlink, no hardlink to another file,
+    # same filesystem, checked and changed through one descriptor (no race)
     for suffix in sidecar_suffixes:
         if suffix in sidecars_before:
             continue
@@ -142,8 +154,15 @@ def fix_sidecar_owner(source: str, sidecars_before: set[str]):
             continue
         try:
             info = fstat(fd)
-            if S_ISREG(info.st_mode) and info.st_uid == 0:
+            if (
+                S_ISREG(info.st_mode)
+                and info.st_uid == 0
+                and info.st_nlink == 1
+                and info.st_dev == owner.st_dev
+            ):
                 fchown(fd, owner.st_uid, owner.st_gid)
+            else:
+                logger.warning(f"{source}{suffix} left as is, unexpected file")
         finally:
             close(fd)
 
