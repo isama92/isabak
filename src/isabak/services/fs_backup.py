@@ -1,5 +1,5 @@
-from src.isabak.helpers import replace_env_vars
-from os.path import join as path_join, exists as path_exists
+from src.isabak.helpers import check_source, replace_env_vars
+from os.path import join as path_join
 from os import makedirs
 import subprocess
 from src.isabak.logs import get_logger
@@ -28,10 +28,9 @@ def fs_backup(service_name: str, service_options: dict, destination: str) -> boo
 
     folder = path_join(folder, "")
 
-    if not path_exists(folder):
-        logger.error(
-            f"{service_name}.fs.folder '{folder}' does not exist in filesystem"
-        )
+    source_error = check_source(folder)
+    if source_error is not None:
+        logger.error(f"{service_name}.fs.folder '{folder}' {source_error}")
         return False
 
     cmd = ["rsync", "-a"]

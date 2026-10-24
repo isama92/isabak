@@ -1,5 +1,6 @@
 domain: "yourdomain.com"
 destination: "/home/user/backups"
+allow_destination_on_root_fs: false
 mysql:
   container: "mysql"
   username: "username"

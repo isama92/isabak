@@ -24,10 +24,12 @@ def services_backup(config: dict, report: RunReport) -> bool:
         report.add("services", "config", False, 0, "invalid services or destination")
         return False
 
-    base_destination = get_base_destination(base_destination)
+    base_destination = get_base_destination(
+        base_destination, config.get("allow_destination_on_root_fs") is True
+    )
 
     if base_destination is None:
-        report.add("services", "destination", False, 0, "could not be created")
+        report.add("services", "destination", False, 0, "unavailable")
         return False
 
     failed_services = []

@@ -28,7 +28,8 @@ All services paths can use ${} to add an environment variable in the path itself
 ### Yaml List
 
 - `domain`: used to generate backups for the ARR stack.
-- `destination`: place where backups will be created
+- `destination`: place where backups will be created. It must already exist and must not be on the root filesystem, see [Mount guards](#mount-guards).
+- `allow_destination_on_root_fs` (optional, default `false`): set to `true` if `destination` is intentionally on the same filesystem as `/`.
 
 ### Env List
 
@@ -52,6 +53,13 @@ Do a run and **check all the backups are working**. Also check the content of gz
 A folder `isabak` will be created at the `destination` and backups will be added inside, the folder will be deleted and recreated each usage.
 
 If omitted, borg default compression will be set to `none`.
+
+### Mount guards
+
+When a data disk is not mounted, its mount point (e.g. `/srv/dev-disk-by-uuid-…` on OpenMediaVault) is still there as an empty folder on the system disk. Backing that up would look like a success, and borg prune would then rotate the real archives out. To prevent this:
+
+- `destination` must already exist (it is no longer created) and must be on a different filesystem than `/`, unless `allow_destination_on_root_fs: true` is set. Otherwise the services stage fails before anything is deleted or written.
+- Every `fs.folder` and every `borg.folders[].folder` must exist and must not be empty. An `fs` source that fails this check fails that service. A borg source that fails it is skipped (no `create`, no `prune`), the other borg entries still run, and the run exits with an error.
 
 ### `fs.include` / `fs.exclude`
 

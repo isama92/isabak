@@ -1,8 +1,8 @@
 from src.isabak.logs import get_logger
 from yaml import safe_load as yaml_load
 from os import getenv
-from os import makedirs
-from os.path import join as path_join
+from os import makedirs, stat
+from os.path import isdir as path_isdir, join as path_join
 from shutil import rmtree
 
 logger = get_logger(__name__)
@@ -47,7 +47,22 @@ def merge_config(config: dict) -> dict:
     return config
 
 
-def get_base_destination(destination: str) -> str | None:
+def get_base_destination(destination: str, allow_root_fs: bool = False) -> str | None:
+    # an unmounted disk leaves an empty mount point on the system disk
+    if not path_isdir(destination):
+        logger.error(
+            f"destination '{destination}' does not exist, is its disk mounted?"
+        )
+        return None
+
+    if not allow_root_fs and stat(destination).st_dev == stat("/").st_dev:
+        logger.error(
+            f"destination '{destination}' is on the root filesystem, "
+            "is its disk mounted? "
+            "set allow_destination_on_root_fs: true if this is intended"
+        )
+        return None
+
     base_destination = path_join(destination, app_name)
 
     try:

@@ -1,6 +1,6 @@
 import subprocess
 from time import monotonic
-from src.isabak.helpers import replace_env_vars
+from src.isabak.helpers import check_source, replace_env_vars
 from src.isabak.logs import get_logger
 from src.isabak.report import RunReport, describe_error
 
@@ -23,8 +23,19 @@ def borg_transfer(options: dict, report: RunReport, prune: bool = True) -> bool:
         logger.warning("borg prune and compact skipped, a service backup failed")
         note = "prune and compact skipped"
 
+    failed = False
+
     for index, entry in enumerate(folders):
         started = monotonic()
+
+        # a guard failure is specific to this source, so the other entries still run
+        source_error = check_entry_source(entry)
+        if source_error is not None:
+            logger.error(f"{entry['repository']}: {source_error}, archive skipped")
+            report.add("borg", entry["repository"], False, 0, source_error)
+            failed = True
+            continue
+
         entry_borg_env = borg_env(repository, passphrase, entry)
         try:
             borg_create(entry_borg_env, entry)
@@ -47,8 +58,23 @@ def borg_transfer(options: dict, report: RunReport, prune: bool = True) -> bool:
             return False
         report.add("borg", entry["repository"], True, monotonic() - started, note)
 
+    if failed:
+        logger.error("borg transfers completed with skipped sources")
+        return False
+
     logger.info("borg transfers completed")
     return True
+
+
+def check_entry_source(entry: dict) -> str | None:
+    try:
+        folder = replace_env_vars(entry["folder"])
+    except KeyError as e:
+        return str(e)
+    source_error = check_source(folder)
+    if source_error is not None:
+        return f"source '{folder}' {source_error}"
+    return None
 
 
 def borg_env(base_repository: str, passphrase: str, entry: dict) -> dict:
