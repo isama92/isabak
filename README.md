@@ -40,7 +40,7 @@ Unknown keys at the top level, in a service entry, in `borg` or in a `borg.folde
 - `DOMAIN`: same as yaml
 - `DESTINATION`: same as yaml
 - `LOG_LEVEL`: possible values are `error`, `warning`, `info`, `debug`, default is `error`. Applies to the console, which is what cron emails.
-- `LOG_FILE` (optional): path of a log file, e.g. `/var/log/isabak/isabak.log`. It records at `info` level (or `debug` with `LOG_LEVEL=debug`) whatever `LOG_LEVEL` is, so successful runs leave a history while the console stays quiet. Rotated at midnight, 30 days kept. Its folder is created with mode `0700`.
+- `LOG_FILE` (optional): path of a log file, e.g. `/var/log/isabak/isabak.log`. It records at `info` level (or `debug` with `LOG_LEVEL=debug`) whatever `LOG_LEVEL` is, so successful runs leave a history while the console stays quiet. Rotated at midnight, 30 days kept. The log files are created with mode `0600`. A folder isabak has to create for it gets mode `0700`, an existing folder such as `/var/log` is left as it is.
 
 ### Env to Yaml mapping
 
@@ -105,7 +105,7 @@ When a data disk is not mounted, its mount point (e.g. `/srv/dev-disk-by-uuid-â€
 
 ### `fs`
 
-Copied with `rsync -a`. rsync's exit code 24 ("some files vanished before they could be transferred") counts as success: the file was deleted while rsync ran, typically a log or cache entry, so nothing that still exists is missing. The vanished files are logged at warning level (in the log file, not in the cron mail). Any other non-zero exit fails the service and logs rsync's last 30 error lines.
+Copied with `rsync -a`. rsync's exit code 24 ("some files vanished before they could be transferred") counts as success: the file was deleted while rsync ran, typically a log or cache entry, so nothing that still exists is missing. The vanished files are logged at warning level (in the log file, not in the cron mail). Any other non-zero exit fails the service and logs rsync's last 30 error lines. rsync's output is cleaned of control characters and every line is prefixed `rsync: `, since file names in it are chosen by the apps.
 
 ### `fs.include` / `fs.exclude`
 

@@ -1,4 +1,9 @@
-from src.isabak.helpers import check_source, replace_env_vars, run_command
+from src.isabak.helpers import (
+    check_source,
+    replace_env_vars,
+    run_command,
+    strip_control_characters,
+)
 from os.path import join as path_join
 from os import makedirs
 import subprocess
@@ -72,12 +77,14 @@ def fs_backup(service_name: str, service_options: dict, destination: str) -> boo
 
 
 def tail(stderr: bytes | None) -> str:
-    lines = (stderr or b"").decode(errors="replace").strip().splitlines()
+    text = strip_control_characters((stderr or b"").decode(errors="replace"))
+    lines = text.strip().splitlines()
     if len(lines) > stderr_lines:
         lines = [f"... {len(lines) - stderr_lines} earlier lines skipped"] + lines[
             -stderr_lines:
         ]
-    return "\n".join(lines)
+    # prefixed, file names in rsync's output cannot pass for an isabak log line
+    return "\n".join(f"rsync: {line}" for line in lines)
 
 
 def check_options(

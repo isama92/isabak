@@ -8,7 +8,7 @@ from re import compile as re_compile
 from tempfile import TemporaryFile
 from typing import BinaryIO
 from urllib.parse import quote
-from src.isabak.helpers import run_command
+from src.isabak.helpers import run_command, strip_control_characters
 from src.isabak.logs import get_logger
 from src.isabak.verify import postgres_dump_marker, verify_sql_gzip
 
@@ -24,8 +24,6 @@ output_first_lines = 10
 output_last_lines = 40
 output_head_bytes = 8 * 1024
 output_tail_bytes = 32 * 1024
-# terminal escape sequences and control characters, except tab and newline
-control_characters = re_compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|[\x00-\x08\x0b-\x1f\x7f]")
 url_credentials = re_compile(r"(://[^:/@\s]+:)[^@\s]+(@)")
 
 
@@ -160,7 +158,7 @@ def log_output(output: BinaryIO, db_password: str, log):
 
 
 def clean_output(data: bytes, db_password: str) -> str:
-    text = control_characters.sub("", data.decode(errors="replace"))
+    text = strip_control_characters(data.decode(errors="replace"))
     # pg_dump does not print the password, masked anyway in case a future image does
     if db_password:
         for secret in {db_password, quote(db_password, safe="")}:

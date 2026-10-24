@@ -5,6 +5,14 @@ from re import compile as re_compile
 
 # how long a process gets to exit after SIGTERM before it is killed
 stop_grace_seconds = 60
+# terminal escape sequences and control characters, except tab and newline
+control_characters = re_compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|[\x00-\x08\x0b-\x1f\x7f]")
+
+
+def strip_control_characters(text: str) -> str:
+    # command output can carry file names an app chose, keep it from rewriting
+    # the terminal or the mail it is read in
+    return control_characters.sub("", text)
 
 
 def run_command(

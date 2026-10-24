@@ -1,6 +1,6 @@
 import logging
 from logging.handlers import TimedRotatingFileHandler
-from os import chmod, getenv, makedirs
+from os import O_APPEND, O_CREAT, O_WRONLY, chmod, getenv, makedirs, open as os_open
 from os.path import dirname, exists as path_exists
 from dotenv import load_dotenv
 
@@ -28,15 +28,25 @@ def get_log_level() -> int:
         raise ValueError("Invalid log level")
 
 
+class PrivateLogFileHandler(TimedRotatingFileHandler):
+    # tracebacks and paths end up in the log, so every file, also each new one
+    # after a rotation, is readable by root only
+    def _open(self):
+        fd = os_open(self.baseFilename, O_WRONLY | O_CREAT | O_APPEND, 0o600)
+        chmod(self.baseFilename, 0o600)
+        return open(fd, self.mode, encoding=self.encoding, errors=self.errors)
+
+
 def add_log_file(path: str, console_level: int):
     # the console (cron mail) stays at LOG_LEVEL, the file always keeps the info
     # history: stage boundaries, the summary, warnings such as vanished files
     folder = dirname(path)
-    if folder:
-        makedirs(folder, exist_ok=True)
-        # root only, like the backup tree: tracebacks and paths end up in here
+    # only a folder isabak creates is made root only, never an existing shared
+    # one such as /var/log
+    if folder and not path_exists(folder):
+        makedirs(folder, mode=0o700)
         chmod(folder, 0o700)
-    handler = TimedRotatingFileHandler(
+    handler = PrivateLogFileHandler(
         path, when="midnight", backupCount=log_file_days, encoding="utf-8"
     )
     handler.setLevel(min(logging.INFO, console_level))
