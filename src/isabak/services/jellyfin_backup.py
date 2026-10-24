@@ -1,4 +1,5 @@
 import requests
+from fnmatch import fnmatch
 from json import dumps as json_dumps
 from time import sleep
 from os import listdir, makedirs, remove, stat
@@ -9,6 +10,9 @@ from src.isabak.logs import get_logger
 from src.isabak.verify import verify_zip
 
 logger = get_logger(__name__)
+
+# the only files isabak ever deletes in the jellyfin backup folder
+backup_pattern = "jellyfin-backup-*.zip"
 
 
 def jellyfin_backup(
@@ -38,17 +42,23 @@ def jellyfin_backup(
     headers = build_headers(api_key)
     body = build_options_body(options)
 
-    if not delete_existing_backups(folder):
+    # create, copy and check first, delete old backups only after that: a failed
+    # run must never leave jellyfin, or the local tree, without any backup
+    existing_files = list_backup_files(folder)
+    if existing_files is None:
         return False
 
     if not create_backup(base_url, headers, body):
         return False
 
-    if not wait_backup_creation(folder):
+    new_files = wait_backup_creation(folder, existing_files)
+    if not new_files:
         return False
 
-    if not copy_backup(folder, destination):
+    if not copy_backup(folder, new_files, destination):
         return False
+
+    delete_old_backups(folder, new_files)
 
     logger.debug("jellyfin backup completed successfully")
     return True
@@ -77,20 +87,32 @@ def build_options_body(options: dict) -> dict:
     }
 
 
-def delete_existing_backups(folder: str) -> bool:
+def list_backup_files(folder: str) -> set[str] | None:
     try:
-        deleted = 0
+        return {
+            file for file in listdir(folder) if path_isfile(path_join(folder, file))
+        }
+    except OSError as e:
+        logger.error(f"backup folder '{folder}' could not be read: {e}")
+        return None
+
+
+def delete_old_backups(folder: str, keep: list[str]):
+    # jellyfin has no retention and no delete api. only its own backup zips are
+    # removed, never the new one and never anything else in the folder. the
+    # backup itself succeeded, so a failure here is reported but not fatal
+    deleted = 0
+    try:
         for file in listdir(folder):
-            src = path_join(folder, file)
-            if not path_isfile(src):
+            path = path_join(folder, file)
+            if file in keep or not fnmatch(file, backup_pattern):
                 continue
-            remove(src)
-            deleted += 1
-        logger.debug(f"{deleted} existing backups deleted")
-        return True
-    except Exception as e:
-        logger.exception(e, stack_info=True)
-        return False
+            if path_isfile(path):
+                remove(path)
+                deleted += 1
+    except OSError as e:
+        logger.error(f"old jellyfin backups could not be removed: {e}")
+    logger.debug(f"{deleted} old backups deleted")
 
 
 def create_backup(base_url: str, headers: dict, body: dict) -> bool:
@@ -112,43 +134,49 @@ def create_backup(base_url: str, headers: dict, body: dict) -> bool:
     return True
 
 
-def wait_backup_creation(folder: str) -> bool:
+def wait_backup_creation(folder: str, existing_files: set[str]) -> list[str]:
+    # only a file that was not there before the request counts as the new backup
     loop_n = 0
     while True:
-        if listdir(folder):
+        files = list_backup_files(folder)
+        if files is None:
+            return []
+        new_files = sorted(files - existing_files)
+        if new_files:
             break
         if loop_n > 14:
             logger.error("backup was not created in time")
-            return False
+            return []
         sleep(1)
         loop_n += 1
 
     while True:
-        size_before = folder_total_size(folder)
+        size_before = files_total_size(folder, new_files)
         sleep(1)
-        size_after = folder_total_size(folder)
+        size_after = files_total_size(folder, new_files)
         if size_before > 0 and size_before == size_after:
-            return True
+            logger.debug(f"new backup files: {', '.join(new_files)}")
+            return new_files
         if loop_n > 29:
             logger.error("backup file size did not stabilize in time")
-            return False
+            return []
         loop_n += 1
 
 
-def folder_total_size(folder: str) -> int:
+def files_total_size(folder: str, files: list[str]) -> int:
     total = 0
-    for file in listdir(folder):
-        src = path_join(folder, file)
-        if not path_isfile(src):
+    for file in files:
+        try:
+            total += stat(path_join(folder, file)).st_size
+        except OSError:
             continue
-        total += stat(src).st_size
     return total
 
 
-def copy_backup(folder: str, destination: str) -> bool:
+def copy_backup(folder: str, files: list[str], destination: str) -> bool:
     copied = 0
     try:
-        for file in listdir(folder):
+        for file in files:
             src = path_join(folder, file)
             if not path_isfile(src):
                 continue

@@ -10,6 +10,10 @@ from src.isabak.verify import verify_zip
 
 logger = get_logger(__name__)
 
+# backup type reported by the *arr api for backups started through the command
+# api, which is how isabak creates them
+manual_type = "manual"
+
 
 def arr_backup(
     service_name: str, service_options: dict, domain: str | None, destination: str
@@ -37,9 +41,8 @@ def arr_backup(
     base_url = build_base_url(domain, subdomain, endpoint, secure)
     headers = build_headers(api_key)
 
-    if not delete_existing_backups(base_url, headers):
-        return False
-
+    # create, copy and check first, delete old backups only after that: a failed
+    # run must never leave the app, or the local tree, without any backup
     existing_files = list_backup_files(folder)
     if existing_files is None:
         return False
@@ -53,6 +56,8 @@ def arr_backup(
 
     if not copy_backup(folder, new_files, destination):
         return False
+
+    delete_old_backups(base_url, headers, new_files)
 
     logger.debug(f"arr backup completed successfully")
     return True
@@ -78,43 +83,50 @@ def build_headers(api_key: str) -> dict:
     }
 
 
-def delete_existing_backups(base_url: str, headers: dict) -> bool:
+def delete_old_backups(base_url: str, headers: dict, keep: list[str]):
+    # only manual backups, the kind isabak creates, and never the new one: the
+    # app's own scheduled and update backups stay. the backup itself succeeded,
+    # so a failure here is reported (error, it reaches the mail) but not fatal
     try:
         response = requests.get(
             f"{base_url}/system/backup", headers=headers, timeout=30
         )
-    except requests.RequestException as e:
+        if response.status_code != 200:
+            logger.error(
+                f"backups list request failed with code {response.status_code}"
+            )
+            return
+        backups = response.json()
+    except (requests.RequestException, ValueError) as e:
         logger.error(f"backups list request failed: {e}")
-        return False
+        return
 
-    if response.status_code != 200:
-        logger.error(f"backups list request failed with code {response.status_code}")
-        return False
+    if not isinstance(backups, list):
+        logger.error("backups list response is not a list")
+        return
 
-    backups = response.json()
-
-    logger.debug(f"{len(backups)} backups found'")
-
+    deleted = 0
     for backup in backups:
+        if not isinstance(backup, dict) or backup.get("type") != manual_type:
+            continue
         backup_id = backup.get("id")
-        if backup_id is None:
-            logger.error(f"backup did not contain the backup id")
-            return False
+        if backup_id is None or backup.get("name") in keep:
+            continue
         try:
             response = requests.delete(
                 f"{base_url}/system/backup/{backup_id}", headers=headers, timeout=30
             )
         except requests.RequestException as e:
             logger.error(f"deletion of backup '{backup_id}' failed: {e}")
-            return False
+            return
         if response.status_code != 200:
             logger.error(
                 f"deletion of backup '{backup_id}' failed with code {response.status_code}"
             )
-            return False
+            return
+        deleted += 1
 
-    logger.debug(f"{len(backups)} backups deleted")
-    return True
+    logger.debug(f"{deleted} old manual backups deleted")
 
 
 def create_backup(base_url: str, headers: dict) -> bool:
