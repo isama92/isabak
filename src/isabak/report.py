@@ -13,6 +13,8 @@ class Step:
     ok: bool
     seconds: float
     note: str = ""
+    # done, but needs attention, e.g. a borg archive created with warnings
+    warning: bool = False
 
 
 @dataclass
@@ -20,11 +22,20 @@ class RunReport:
     started: float = field(default_factory=monotonic)
     steps: list[Step] = field(default_factory=list)
 
-    def add(self, stage: str, name: str, ok: bool, seconds: float, note: str = ""):
-        self.steps.append(Step(stage, name, ok, seconds, note))
+    def add(
+        self,
+        stage: str,
+        name: str,
+        ok: bool,
+        seconds: float,
+        note: str = "",
+        warning: bool = False,
+    ):
+        self.steps.append(Step(stage, name, ok, seconds, note, warning))
 
     def ok(self) -> bool:
-        return all(step.ok for step in self.steps)
+        # warnings count as failures for the exit code, so they still raise an alert
+        return all(step.ok and not step.warning for step in self.steps)
 
     def log_summary(self, app_name: str):
         # error level on failure so cron emails it, info on success so runs stay quiet
@@ -32,7 +43,7 @@ class RunReport:
         status = "succeeded" if self.ok() else "FAILED"
         log(f"{app_name} {status} in {format_seconds(monotonic() - self.started)}")
         for step in self.steps:
-            result = "ok  " if step.ok else "FAIL"
+            result = "FAIL" if not step.ok else "WARN" if step.warning else "ok  "
             line = (
                 f"  {result} {step.stage} {step.name} ({format_seconds(step.seconds)})"
             )

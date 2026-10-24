@@ -67,7 +67,7 @@ Anywhere a config value is a filesystem path (service `fs.folder`, `arr.folder`,
 
 ### Borg stage
 
-`src/isabak/borg.py` iterates `borg.folders[]` and for each entry runs `borg create` → `borg prune` → `borg compact` with `BORG_REPO` set to `repository + entry.repository` and `BORG_PASSPHRASE` from config. Prune policy is hard-coded: `--keep-daily 7 --keep-weekly 2 --keep-monthly 1` with `--glob-archives '{hostname}-*'`. Default compression when omitted is `none` (also documented in README). Unlike services, a `CalledProcessError` here aborts the *entire* borg loop — the rationale is that a broken repo/passphrase will fail every entry.
+`src/isabak/borg.py` iterates `borg.folders[]` and for each entry runs `borg create` → `borg prune` → `borg compact` with `BORG_REPO` set to `repository + entry.repository` and `BORG_PASSPHRASE` from config. Prune policy is hard-coded: `--keep-daily 7 --keep-weekly 2 --keep-monthly 1` with `--glob-archives '{hostname}-*'`. Default compression when omitted is `none` (also documented in README). Each entry is its own repository, so a failure in one entry is recorded and the loop continues with the next. `borg create` exit code 1 means the archive was written with warnings (e.g. a file changed or could not be read): the entry's prune and compact still run, the step is recorded as `WARN` (`warning=True` in `RunReport.add`) and the run exits 1 so the warning is alerted. Exit code 2 or higher is a failure for that entry, with no prune.
 
 ## Conventions worth preserving
 

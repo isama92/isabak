@@ -25,7 +25,8 @@ def borg_transfer(options: dict, report: RunReport, prune: bool = True) -> bool:
 
     failed = False
 
-    for index, entry in enumerate(folders):
+    # every entry is its own repository, so one failure never stops the others
+    for entry in folders:
         started = monotonic()
 
         # a guard failure is specific to this source, so the other entries still run
@@ -38,7 +39,7 @@ def borg_transfer(options: dict, report: RunReport, prune: bool = True) -> bool:
 
         entry_borg_env = borg_env(repository, passphrase, entry)
         try:
-            borg_create(entry_borg_env, entry)
+            warned = borg_create(entry_borg_env, entry)
             if prune:
                 borg_prune(entry_borg_env)
                 borg_compact(entry_borg_env)
@@ -53,13 +54,26 @@ def borg_transfer(options: dict, report: RunReport, prune: bool = True) -> bool:
                 monotonic() - started,
                 describe_error(e),
             )
-            for skipped in folders[index + 1 :]:
-                report.add("borg", skipped["repository"], False, 0, "not run")
-            return False
-        report.add("borg", entry["repository"], True, monotonic() - started, note)
+            failed = True
+            continue
+
+        entry_note = note
+        if warned:
+            entry_note = "archive created with warnings, see log"
+            if note:
+                entry_note += f", {note}"
+        report.add(
+            "borg",
+            entry["repository"],
+            True,
+            monotonic() - started,
+            entry_note,
+            warning=warned,
+        )
+        failed = failed or warned
 
     if failed:
-        logger.error("borg transfers completed with skipped sources")
+        logger.error("borg transfers completed with errors or warnings")
         return False
 
     logger.info("borg transfers completed")
@@ -84,7 +98,8 @@ def borg_env(base_repository: str, passphrase: str, entry: dict) -> dict:
     }
 
 
-def borg_create(env: dict, entry: dict):
+def borg_create(env: dict, entry: dict) -> bool:
+    # True when borg finished with warnings, exit code 1 still writes the archive
     folder = entry.get("folder")
     folder = replace_env_vars(folder)
 
@@ -106,11 +121,19 @@ def borg_create(env: dict, entry: dict):
         borg_cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        check=True,
         env=env,
     )
+    if process.returncode == 1:
+        logger.error(f"{env.get('BORG_REPO')} archive created with warnings")
+        log_std_outputs(process, True)
+        return True
+    if process.returncode != 0:
+        raise subprocess.CalledProcessError(
+            process.returncode, borg_cmd, process.stdout, process.stderr
+        )
     log_std_outputs(process)
     logger.debug(f"{env.get('BORG_REPO')} transfer completed")
+    return False
 
 
 def borg_prune(env: dict):
