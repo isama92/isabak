@@ -63,6 +63,21 @@ A folder `isabak` will be created at the `destination` and backups will be added
 
 If omitted, borg default compression will be set to `none`.
 
+### Timeouts
+
+Every external command has a time limit, so one stuck command fails only its own service or borg repository instead of hanging the whole run:
+
+| Command | Limit |
+|---|---|
+| `rsync` (`fs`) | 2 h |
+| `docker exec` writing or removing the MySQL/MariaDB credentials file | 2 min |
+| `mysqldump` / `mariadb-dump` | 1 h |
+| Postgres backup container | 1 h |
+| `borg create` | 4 h |
+| `borg prune`, `borg compact` | 1 h each |
+
+On timeout the command gets SIGTERM and 60 s to exit before SIGKILL, so borg can release its repository lock and `docker run` can stop and remove its container. A dump started with `docker exec` keeps running inside the database container until it finishes, only the client is stopped. The step is reported as `timed out after …`. The limits are constants at the top of each module.
+
 ### Mount guards
 
 When a data disk is not mounted, its mount point (e.g. `/srv/dev-disk-by-uuid-…` on OpenMediaVault) is still there as an empty folder on the system disk. Backing that up would look like a success, and borg prune would then rotate the real archives out. To prevent this:

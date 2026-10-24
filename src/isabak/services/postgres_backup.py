@@ -3,10 +3,13 @@ from os.path import join as path_join, exists as path_exists, realpath as path_r
 from shutil import move as shutil_move
 from shutil import rmtree as shutil_rmtree
 import subprocess
+from src.isabak.helpers import run_command
 from src.isabak.logs import get_logger
 from src.isabak.verify import postgres_dump_marker, verify_sql_gzip
 
 logger = get_logger(__name__)
+
+container_timeout = 3600
 
 
 def postgres_backup(service_name: str, service_options: dict, destination: str) -> bool:
@@ -85,14 +88,15 @@ def create_backup(
     # fmt: on
 
     try:
-        subprocess.run(
+        run_command(
             docker_cmd,
+            timeout=container_timeout,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=True,
             env={**environ, "POSTGRES_PASSWORD": db_password},
         )
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         logger.exception(e, stack_info=True)
         shutil_rmtree(tmp_folder)
         return False

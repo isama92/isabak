@@ -1,12 +1,17 @@
 from os.path import join as path_join
 from os import makedirs, remove
 import subprocess
+from time import monotonic
+from src.isabak.helpers import run_command, stop_process
 from src.isabak.logs import get_logger
 from src.isabak.verify import mysql_dump_marker, verify_sql_gzip
 
 logger = get_logger(__name__)
 
 CNF_WRITE_CMD = "umask 077 && cat > /backup.cnf"
+
+exec_timeout = 120
+dump_timeout = 3600
 
 
 def mariadb_backup(
@@ -43,8 +48,9 @@ def create_credentials(db_container: str, db_username: str, db_password: str):
     # credentials go over stdin, never argv, so they cannot leak via ps or tracebacks
     password = db_password.replace("\\", "\\\\")
     cnf = f'[client]\nuser="{db_username}"\npassword="{password}"\nhost=localhost\n'
-    subprocess.run(
+    run_command(
         ["docker", "exec", "-i", db_container, "sh", "-c", CNF_WRITE_CMD],
+        timeout=exec_timeout,
         input=cnf.encode(),
         check=True,
     )
@@ -66,8 +72,20 @@ def create_backup(db_name: str, db_container: str, destination: str):
         dump_proc = subprocess.Popen(dump_cmd, stdout=subprocess.PIPE)
         gzip = subprocess.Popen(["gzip"], stdin=dump_proc.stdout, stdout=f)
         dump_proc.stdout.close()
-        gzip_rc = gzip.wait()
-        dump_rc = dump_proc.wait()
+        deadline = monotonic() + dump_timeout
+        try:
+            dump_rc = dump_proc.wait(timeout=dump_timeout)
+            gzip_rc = gzip.wait(timeout=max(1, deadline - monotonic()))
+        except subprocess.TimeoutExpired:
+            # stops the docker exec client, the dump inside the container may
+            # still run until it finishes on its own
+            stop_process(dump_proc)
+            stop_process(gzip)
+            dump_rc = None
+
+    if dump_rc is None:
+        remove(out_path)
+        raise subprocess.TimeoutExpired(dump_cmd, dump_timeout)
 
     if dump_rc != 0:
         remove(out_path)
@@ -110,4 +128,8 @@ def check_options(
 
 
 def delete_credentials(db_container: str):
-    subprocess.run(["docker", "exec", db_container, "rm", "/backup.cnf"], check=True)
+    run_command(
+        ["docker", "exec", db_container, "rm", "/backup.cnf"],
+        timeout=exec_timeout,
+        check=True,
+    )

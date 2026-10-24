@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from subprocess import CalledProcessError
+from subprocess import CalledProcessError, TimeoutExpired
 from time import monotonic
 from src.isabak.logs import get_logger
 
@@ -56,6 +56,8 @@ def describe_error(e: Exception) -> str:
     # never the full message, CalledProcessError argv can hold credentials
     if isinstance(e, CalledProcessError):
         return f"{type(e).__name__}: exit status {e.returncode}"
+    if isinstance(e, TimeoutExpired):
+        return f"timed out after {format_seconds(e.timeout)}"
     return type(e).__name__
 
 

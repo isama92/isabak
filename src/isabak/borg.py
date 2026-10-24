@@ -1,10 +1,14 @@
 import subprocess
 from time import monotonic
-from src.isabak.helpers import check_source, replace_env_vars
+from src.isabak.helpers import check_source, replace_env_vars, run_command
 from src.isabak.logs import get_logger
 from src.isabak.report import RunReport, describe_error
 
 logger = get_logger(__name__)
+
+# a first run of a large source can take hours, borg resumes from its checkpoints
+create_timeout = 4 * 3600
+maintenance_timeout = 3600
 
 
 def borg_transfer(options: dict, report: RunReport, prune: bool = True) -> bool:
@@ -117,8 +121,9 @@ def borg_create(env: dict, entry: dict) -> bool:
         folder,
     ]
     # fmt: on
-    process = subprocess.run(
+    process = run_command(
         borg_cmd,
+        timeout=create_timeout,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=env,
@@ -147,8 +152,9 @@ def borg_prune(env: dict):
         "--keep-monthly", "1"
     ]
     # fmt: on
-    process = subprocess.run(
+    process = run_command(
         borg_cmd,
+        timeout=maintenance_timeout,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=True,
@@ -161,8 +167,9 @@ def borg_prune(env: dict):
 def borg_compact(env: dict):
     logger.debug(f"{env.get('BORG_REPO')} compact started")
     borg_cmd = ["borg", "compact"]
-    process = subprocess.run(
+    process = run_command(
         borg_cmd,
+        timeout=maintenance_timeout,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=True,

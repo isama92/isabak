@@ -1,6 +1,43 @@
+import subprocess
 from os import getenv, scandir
 from os.path import isdir as path_isdir
 from re import compile as re_compile
+
+# how long a process gets to exit after SIGTERM before it is killed
+stop_grace_seconds = 60
+
+
+def run_command(
+    cmd: list[str],
+    timeout: float,
+    check: bool = False,
+    input: bytes | None = None,
+    **kwargs,
+) -> subprocess.CompletedProcess:
+    # like subprocess.run(timeout=...), which sends SIGKILL straight away. SIGTERM
+    # first lets borg release its repository lock and docker run stop and remove
+    # its container, a kill would leave both behind
+    stdin = subprocess.PIPE if input is not None else None
+    with subprocess.Popen(cmd, stdin=stdin, **kwargs) as process:
+        try:
+            stdout, stderr = process.communicate(input, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            stop_process(process)
+            raise subprocess.TimeoutExpired(cmd, timeout) from None
+    if check and process.returncode != 0:
+        raise subprocess.CalledProcessError(process.returncode, cmd, stdout, stderr)
+    return subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
+
+
+def stop_process(process: subprocess.Popen):
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.communicate(timeout=stop_grace_seconds)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate()
 
 
 def check_source(folder: str) -> str | None:

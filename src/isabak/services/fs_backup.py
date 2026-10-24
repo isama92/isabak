@@ -1,10 +1,11 @@
-from src.isabak.helpers import check_source, replace_env_vars
+from src.isabak.helpers import check_source, replace_env_vars, run_command
 from os.path import join as path_join
 from os import makedirs
-import subprocess
 from src.isabak.logs import get_logger
 
 logger = get_logger(__name__)
+
+rsync_timeout = 2 * 3600
 
 
 def fs_backup(service_name: str, service_options: dict, destination: str) -> bool:
@@ -43,7 +44,7 @@ def fs_backup(service_name: str, service_options: dict, destination: str) -> boo
     cmd += [folder, destination]
 
     try:
-        subprocess.run(cmd, check=True)
+        run_command(cmd, timeout=rsync_timeout, check=True)
     except Exception as e:
         logger.exception(e, stack_info=True)
         return False

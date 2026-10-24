@@ -77,4 +77,5 @@ Anywhere a config value is a filesystem path (service `fs.folder`, `arr.folder`,
 - Imports use the absolute `src.isabak....` prefix everywhere (see commit `a5020df import refactor`); the project is run from the repo root, not as an installed package.
 - Logging is the only user feedback channel — there is no CLI output otherwise. Keep `logger.info` for stage boundaries, `logger.debug` for per-step detail, `logger.error` for user-actionable config problems.
 - `check_options()` validators return bool and log; do not raise for config errors.
+- Every external command goes through `run_command()` (`src/isabak/helpers.py`) with an explicit `timeout=`, never bare `subprocess.run`. It sends SIGTERM, waits `stop_grace_seconds`, then SIGKILL, so borg releases its lock and `docker run` removes its container. Limits are module constants (`rsync_timeout`, `dump_timeout`, `create_timeout`, …). The MySQL/MariaDB dump pipeline uses `stop_process()` on both `Popen`s. `describe_error()` reports a `TimeoutExpired` as `timed out after …`.
 - `# fmt: off` / `# fmt: on` blocks around long subprocess argv lists are intentional — keep them readable as one-flag-per-line.
