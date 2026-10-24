@@ -103,6 +103,7 @@ def services_backup(config: dict, report: RunReport) -> bool:
                     postgres_backup,
                     service_name,
                     service.get("postgres"),
+                    config.get("postgres", {}),
                     destination,
                 )
             )

@@ -15,6 +15,10 @@ from src.isabak.verify import postgres_dump_marker, verify_sql_gzip
 logger = get_logger(__name__)
 
 container_timeout = 3600
+# set postgres.image in config.yaml to pin a tag and digest, e.g.
+# prodrigestivill/postgres-backup-local:17@sha256:..., so a new upstream push is
+# never run with the database passwords without you choosing it
+default_image = "prodrigestivill/postgres-backup-local"
 # enough for the reason a dump failed without flooding the email
 output_first_lines = 10
 output_last_lines = 40
@@ -25,7 +29,9 @@ control_characters = re_compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|[\x00-\x08\x0b-\x1f\
 url_credentials = re_compile(r"(://[^:/@\s]+:)[^@\s]+(@)")
 
 
-def postgres_backup(service_name: str, service_options: dict, destination: str) -> bool:
+def postgres_backup(
+    service_name: str, service_options: dict, db_options: dict, destination: str
+) -> bool:
     logger.debug(f"postgres backup for service '{service_name}' started")
 
     db_name = service_options.get("db_name")
@@ -33,10 +39,14 @@ def postgres_backup(service_name: str, service_options: dict, destination: str) 
     db_network = service_options.get("network")
     db_username = service_options.get("username")
     db_password = service_options.get("password")
+    image = db_options.get("image", default_image)
 
     if not check_options(
         service_name, db_name, db_container, db_network, db_username, db_password
     ):
+        return False
+    if not isinstance(image, str) or not image:
+        logger.error("postgres.image must be an image name")
         return False
 
     destination = path_join(destination, "postgres", "")
@@ -47,7 +57,7 @@ def postgres_backup(service_name: str, service_options: dict, destination: str) 
     logger.debug("tmp folder created")
 
     if not create_backup(
-        db_name, db_container, db_network, db_username, db_password, tmp_folder
+        db_name, db_container, db_network, db_username, db_password, tmp_folder, image
     ):
         return False
 
@@ -84,6 +94,7 @@ def create_backup(
     db_username: str,
     db_password: str,
     tmp_folder: str,
+    image: str = default_image,
 ) -> bool:
     # fmt: off
     docker_cmd = [
@@ -96,7 +107,7 @@ def create_backup(
         "-e", f"POSTGRES_USER={db_username}",
         # no value: docker copies it from its own env, keeping it out of argv
         "-e", "POSTGRES_PASSWORD",
-        "prodrigestivill/postgres-backup-local", "/backup.sh"
+        image, "/backup.sh"
     ]
     # fmt: on
 

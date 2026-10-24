@@ -9,6 +9,8 @@ mariadb:
   container: "mariadb"
   username: "username"
   password: "password"
+postgres:
+  image: "prodrigestivill/postgres-backup-local:17@sha256:<digest>"
 services:
   - name: your_service
     fs:

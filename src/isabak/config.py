@@ -16,6 +16,7 @@ top_level_keys = {
     "allow_destination_on_root_fs",
     "mysql",
     "mariadb",
+    "postgres",
     "services",
     "borg",
 }

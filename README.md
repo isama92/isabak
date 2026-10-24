@@ -29,6 +29,7 @@ All services paths can use ${} to add an environment variable in the path itself
 
 - `domain`: used to generate backups for the ARR stack.
 - `destination`: place where backups will be created. It must already exist and must not be on the root filesystem, see [Mount guards](#mount-guards).
+- `postgres.image` (optional, default `prodrigestivill/postgres-backup-local`): image used for Postgres dumps. Pin it to a tag and digest, e.g. `prodrigestivill/postgres-backup-local:17@sha256:<digest>`, so a new upstream push never runs with your database passwords before you choose to update. The digest of the image you run today: `docker image inspect prodrigestivill/postgres-backup-local --format '{{index .RepoDigests 0}}'`. Its `pg_dump` must be at least as new as your newest Postgres server.
 - `allow_destination_on_root_fs` (optional, default `false`): set to `true` if `destination` is intentionally on the same filesystem as `/`.
 - `borg`: required. Set `borg: false` to run without an off-site copy on purpose. A missing, empty or misspelt `borg` key fails the run instead of silently skipping the upload.
 
