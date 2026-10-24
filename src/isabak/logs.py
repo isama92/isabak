@@ -1,9 +1,13 @@
 import logging
-from os import getenv
-from os.path import exists as path_exists
+from logging.handlers import TimedRotatingFileHandler
+from os import chmod, getenv, makedirs
+from os.path import dirname, exists as path_exists
 from dotenv import load_dotenv
 
 env_file_path = ".env"
+log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+# one file per day, a month of history
+log_file_days = 30
 
 
 def get_logger(name: str):
@@ -24,12 +28,32 @@ def get_log_level() -> int:
         raise ValueError("Invalid log level")
 
 
+def add_log_file(path: str, console_level: int):
+    # the console (cron mail) stays at LOG_LEVEL, the file always keeps the info
+    # history: stage boundaries, the summary, warnings such as vanished files
+    folder = dirname(path)
+    if folder:
+        makedirs(folder, exist_ok=True)
+        # root only, like the backup tree: tracebacks and paths end up in here
+        chmod(folder, 0o700)
+    handler = TimedRotatingFileHandler(
+        path, when="midnight", backupCount=log_file_days, encoding="utf-8"
+    )
+    handler.setLevel(min(logging.INFO, console_level))
+    handler.setFormatter(logging.Formatter(log_format))
+    logging.getLogger().addHandler(handler)
+
+
 # Bootstrap on first import so module-level get_logger() calls elsewhere
 # resolve against a configured root logger.
 if path_exists(env_file_path):
     load_dotenv(env_file_path)
 
-logging.basicConfig(
-    level=get_log_level(),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+console_level = get_log_level()
+logging.basicConfig(level=console_level, format=log_format)
+
+log_file = getenv("LOG_FILE")
+if log_file:
+    logging.getLogger().handlers[0].setLevel(console_level)
+    logging.getLogger().setLevel(min(logging.INFO, console_level))
+    add_log_file(log_file, console_level)

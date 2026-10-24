@@ -38,7 +38,8 @@ Unknown keys at the top level, in a service entry, in `borg` or in a `borg.folde
 
 - `DOMAIN`: same as yaml
 - `DESTINATION`: same as yaml
-- `LOG_LEVEL`: possible values are `error`, `warning`, `info`, `debug`, default is `error`
+- `LOG_LEVEL`: possible values are `error`, `warning`, `info`, `debug`, default is `error`. Applies to the console, which is what cron emails.
+- `LOG_FILE` (optional): path of a log file, e.g. `/var/log/isabak/isabak.log`. It records at `info` level (or `debug` with `LOG_LEVEL=debug`) whatever `LOG_LEVEL` is, so successful runs leave a history while the console stays quiet. Rotated at midnight, 30 days kept. Its folder is created with mode `0700`.
 
 ### Env to Yaml mapping
 
