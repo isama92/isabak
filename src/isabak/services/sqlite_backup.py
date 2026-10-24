@@ -7,6 +7,7 @@ from os import (
     close,
     fchown,
     fstat,
+    listdir,
     lstat,
     makedirs,
     open as os_open,
@@ -96,6 +97,8 @@ def backup_database(source: str, target: str):
     # the backup api takes a consistent snapshot while the app keeps writing,
     # unlike a file copy of the database and its -wal at different moments
     identity = lstat(source)
+    if not S_ISREG(identity.st_mode):
+        raise ValueError(f"{source} is no longer a regular file")
     sidecars_before = {s for s in sidecar_suffixes if path_exists(source + s)}
     tmp = target + ".tmp"
     if path_exists(tmp):
@@ -104,9 +107,7 @@ def backup_database(source: str, target: str):
     try:
         # read-only only: since SQLite 3.22 this also works for a WAL database
         # without a -shm, so a failure is a real error and never retried writable
-        copy_database(Path(abspath(source)).as_uri() + "?mode=ro", tmp)
-        if not same_file(identity, source):
-            raise ValueError(f"{source} was replaced during the backup")
+        copy_database(Path(abspath(source)).as_uri() + "?mode=ro", tmp, identity)
         replace(tmp, target)
     finally:
         if path_exists(tmp):
@@ -114,18 +115,14 @@ def backup_database(source: str, target: str):
         fix_sidecar_owner(source, identity, sidecars_before)
 
 
-def same_file(identity: stat_result, path: str) -> bool:
-    try:
-        current = lstat(path)
-    except FileNotFoundError:
-        return False
-    return (current.st_dev, current.st_ino) == (identity.st_dev, identity.st_ino)
-
-
-def copy_database(source_uri: str, tmp: str):
+def copy_database(source_uri: str, tmp: str, identity: stat_result):
     with closing(sqlite3.connect(source_uri, uri=True, timeout=30)) as src:
         with closing(sqlite3.connect(tmp)) as dst:
             src.backup(dst)
+            # the path could have been swapped for a symlink after the checks, so
+            # confirm the file sqlite actually has open is the one that was checked
+            if not holds_open(identity):
+                raise ValueError("database file changed during the backup")
             # one self-contained file, no -wal or -shm next to the copy
             dst.execute("PRAGMA journal_mode=DELETE")
             # capped, a badly damaged file would otherwise list every page
@@ -135,6 +132,18 @@ def copy_database(source_uri: str, tmp: str):
         if len(details) > 300:
             details = details[:300] + "..."
         raise ValueError(f"integrity check of the copy failed: {details}")
+
+
+def holds_open(identity: stat_result) -> bool:
+    # linux only: every descriptor this process holds, including sqlite's own
+    for fd in listdir("/proc/self/fd"):
+        try:
+            info = fstat(int(fd))
+        except OSError:
+            continue
+        if (info.st_dev, info.st_ino) == (identity.st_dev, identity.st_ino):
+            return True
+    return False
 
 
 def fix_sidecar_owner(source: str, owner: stat_result, sidecars_before: set[str]):
