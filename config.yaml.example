@@ -20,6 +20,7 @@ services:
         - "/logs"
       include:
         - "/keep_this_dir/***"
+      # max_age_hours: 25   # fail when the newest file is older, for app-written backups
     mysql:
       db_name: "your_service_db"
     mariadb:

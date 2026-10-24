@@ -4,8 +4,10 @@ from src.isabak.helpers import (
     run_command,
     strip_control_characters,
 )
-from os.path import join as path_join
-from os import makedirs
+from os.path import join as path_join, relpath
+from os import lstat, makedirs, walk
+from stat import S_ISREG
+from time import time
 import subprocess
 from src.isabak.logs import get_logger
 
@@ -24,8 +26,9 @@ def fs_backup(service_name: str, service_options: dict, destination: str) -> boo
     folder = service_options.get("folder")
     include = service_options.get("include") or []
     exclude = service_options.get("exclude") or []
+    max_age_hours = service_options.get("max_age_hours")
 
-    if not check_options(service_name, folder, include, exclude):
+    if not check_options(service_name, folder, include, exclude, max_age_hours):
         return False
 
     destination = path_join(destination, "fs", "")
@@ -72,8 +75,48 @@ def fs_backup(service_name: str, service_options: dict, destination: str) -> boo
 
     logger.debug(f"copied {folder} to {destination}")
 
+    # after the copy, so even a stale backup is kept, but the run is alerted
+    if max_age_hours is not None and not check_freshness(
+        service_name, folder, max_age_hours
+    ):
+        return False
+
     logger.debug("fs backup completed successfully")
     return True
+
+
+def check_freshness(service_name: str, folder: str, max_age_hours: float) -> bool:
+    # for folders an app fills itself (e.g. immich's nightly database dump): if
+    # the app stops writing, the copy would otherwise keep the old file forever
+    newest = newest_file(folder)
+    if newest is None:
+        logger.error(f"{service_name}.fs.folder '{folder}' contains no files")
+        return False
+    path, mtime = newest
+    age_hours = (time() - mtime) / 3600
+    if age_hours > max_age_hours:
+        name = strip_control_characters(relpath(path, folder))
+        logger.error(
+            f"{service_name}.fs newest file is {age_hours:.1f}h old "
+            f"(limit {max_age_hours}h): {name}"
+        )
+        return False
+    return True
+
+
+def newest_file(folder: str) -> tuple[str, float] | None:
+    newest = None
+    for root, _, files in walk(folder):
+        for file in files:
+            path = path_join(root, file)
+            try:
+                info = lstat(path)
+            except OSError:
+                continue
+            # symlinks are not followed, they could point anywhere
+            if S_ISREG(info.st_mode) and (newest is None or info.st_mtime > newest[1]):
+                newest = (path, info.st_mtime)
+    return newest
 
 
 def tail(stderr: bytes | None) -> str:
@@ -92,6 +135,7 @@ def check_options(
     folder: str | None,
     include: list,
     exclude: list,
+    max_age_hours=None,
 ):
     if folder is None:
         logger.error(f"{service_name}.fs.folder is required")
@@ -101,5 +145,12 @@ def check_options(
         return False
     if not isinstance(exclude, list):
         logger.error(f"{service_name}.fs.exclude must be a list")
+        return False
+    if max_age_hours is not None and (
+        isinstance(max_age_hours, bool)
+        or not isinstance(max_age_hours, (int, float))
+        or max_age_hours <= 0
+    ):
+        logger.error(f"{service_name}.fs.max_age_hours must be a number above 0")
         return False
     return True

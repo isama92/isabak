@@ -107,6 +107,15 @@ When a data disk is not mounted, its mount point (e.g. `/srv/dev-disk-by-uuid-â€
 
 Copied with `rsync -a`. rsync's exit code 24 ("some files vanished before they could be transferred") counts as success: the file was deleted while rsync ran, typically a log or cache entry, so nothing that still exists is missing. The vanished files are logged at warning level (in the log file, not in the cron mail). Any other non-zero exit fails the service and logs rsync's last 30 error lines. rsync's output is cleaned of control characters and every line is prefixed `rsync: `, since file names in it are chosen by the apps.
 
+`max_age_hours` (optional, a number above 0): after the copy, the newest regular file anywhere in `folder` must be younger than this, otherwise the service fails (the copy is still kept). Meant for folders an app fills on its own schedule, such as Immich's nightly database dumps, so a backup job that silently stopped is noticed instead of yesterday's file being copied again forever. It looks at every file in the folder, regardless of `include`/`exclude`, and does not follow symlinks. Pick a value just above the time between the app's job and the isabak run, e.g. `25` for a dump at 01:00 and isabak at 02:30, so one missed night already fails.
+
+```yaml
+  - name: immich_db
+    fs:
+      folder: "${SRV_DIR_DATA}/Media/Pictures/Immich/backups"
+      max_age_hours: 25
+```
+
 ### `fs.include` / `fs.exclude`
 
 `fs.exclude` and `fs.include` accept a list of [rsync filter patterns](https://download.samba.org/pub/rsync/rsync.1#FILTER_RULES) anchored at `fs.folder`. A leading `/` anchors the pattern to the source root, otherwise it matches anywhere in the tree. Use `dir/***` to match a directory and everything under it recursively.
