@@ -1,7 +1,20 @@
 import logging
 from logging.handlers import TimedRotatingFileHandler
-from os import O_APPEND, O_CREAT, O_WRONLY, chmod, getenv, makedirs, open as os_open
-from os.path import dirname, exists as path_exists
+from os import (
+    O_APPEND,
+    O_CREAT,
+    O_NOFOLLOW,
+    O_WRONLY,
+    close,
+    fchmod,
+    fstat,
+    getenv,
+    makedirs,
+    open as os_open,
+    stat as os_stat,
+)
+from os.path import abspath, dirname, exists as path_exists
+from stat import S_ISREG
 from dotenv import load_dotenv
 
 env_file_path = ".env"
@@ -30,22 +43,34 @@ def get_log_level() -> int:
 
 class PrivateLogFileHandler(TimedRotatingFileHandler):
     # tracebacks and paths end up in the log, so every file, also each new one
-    # after a rotation, is readable by root only
+    # after a rotation, is readable by root only. isabak runs as root, so a
+    # symlink or hardlink in place of the log must never redirect the write or
+    # the chmod to another file: no following, and the mode set on the fd
     def _open(self):
-        fd = os_open(self.baseFilename, O_WRONLY | O_CREAT | O_APPEND, 0o600)
-        chmod(self.baseFilename, 0o600)
+        flags = O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW
+        fd = os_open(self.baseFilename, flags, 0o600)
+        info = fstat(fd)
+        if not S_ISREG(info.st_mode) or info.st_nlink != 1:
+            close(fd)
+            raise OSError(f"{self.baseFilename} is not a plain log file")
+        fchmod(fd, 0o600)
         return open(fd, self.mode, encoding=self.encoding, errors=self.errors)
 
 
 def add_log_file(path: str, console_level: int):
     # the console (cron mail) stays at LOG_LEVEL, the file always keeps the info
     # history: stage boundaries, the summary, warnings such as vanished files
-    folder = dirname(path)
-    # only a folder isabak creates is made root only, never an existing shared
-    # one such as /var/log
-    if folder and not path_exists(folder):
+    folder = dirname(abspath(path))
+    if not path_exists(folder):
+        # mode applies to the new folder, the umask can only remove bits
         makedirs(folder, mode=0o700)
-        chmod(folder, 0o700)
+    elif os_stat(folder).st_mode & 0o022:
+        # another user could swap the log or its rotated files for symlinks;
+        # an existing folder is never chmodded, /var/log stays as it is
+        raise ValueError(
+            f"LOG_FILE folder {folder} is writable by other users, "
+            "use a root-only folder such as /var/log/isabak"
+        )
     handler = PrivateLogFileHandler(
         path, when="midnight", backupCount=log_file_days, encoding="utf-8"
     )
