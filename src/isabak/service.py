@@ -9,7 +9,7 @@ from src.isabak.logs import get_logger
 from src.isabak.config import drop_last_good, get_base_destination, manifest_name
 from src.isabak.report import RunReport, describe_error
 from os import makedirs
-from os.path import join as path_join
+from os.path import isabs, join as path_join
 from time import monotonic
 
 logger = get_logger(__name__)
@@ -201,6 +201,11 @@ def run_step(
 def check_options(destination, services) -> bool:
     if not isinstance(destination, str):
         logger.error("destination is required")
+        return False
+    if not isabs(destination):
+        # a relative path lands wherever the job happens to run, e.g. an empty
+        # DESTINATION or one built from an unset variable
+        logger.error(f"destination '{destination}' must be an absolute path")
         return False
     if not isinstance(services, list):
         logger.error("services is malformed")
