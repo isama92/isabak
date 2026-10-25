@@ -1,6 +1,17 @@
-from os import listdir
+from errno import ELOOP
+from os import (
+    O_NOFOLLOW,
+    O_NONBLOCK,
+    O_RDONLY,
+    chmod,
+    fstat,
+    listdir,
+    open as os_open,
+    utime,
+)
 from os.path import isfile as path_isfile, join as path_join
-from shutil import copy2 as shutil_copy2
+from shutil import copyfileobj
+from stat import S_IMODE, S_ISREG
 from src.isabak.logs import get_logger
 from src.isabak.verify import verify_zip
 
@@ -35,28 +46,60 @@ def list_backup_files(folder: str) -> set[str] | None:
 
 
 def copy_backup(kind: str, folder: str, files: list[str], destination: str) -> bool:
-    copied = 0
+    # the step only succeeds with a new backup zip that was copied and checked:
+    # the caller deletes the app's older backups right after this
+    zips = 0
     try:
         for file in files:
-            src = path_join(folder, file)
-            if not path_isfile(src):
+            copy_error = copy_file(
+                path_join(folder, file), path_join(destination, file)
+            )
+            if copy_error == "missing":
                 logger.warning(f"{kind} backup {file} disappeared before the copy")
                 continue
-            dest = path_join(destination, file)
-            shutil_copy2(src, dest)
-            logger.debug(f"copied {src} to {dest}")
-            copied += 1
+            if copy_error is not None:
+                logger.error(f"{kind} backup {file} {copy_error}")
+                return False
+            logger.debug(f"copied {file} to {destination}")
+            if not file.endswith(".zip"):
+                continue
             # a zip copied while the app was still writing it fails here
-            verify_error = verify_zip(dest) if file.endswith(".zip") else None
+            verify_error = verify_zip(path_join(destination, file))
             if verify_error is not None:
                 logger.error(f"{kind} backup {file} {verify_error}")
                 return False
+            zips += 1
     except OSError as e:
-        logger.exception(e, stack_info=True)
+        logger.exception(f"{kind} backup copy failed: {e}", stack_info=True)
         return False
 
-    if copied == 0:
-        logger.error("no backup files were copied")
+    if zips == 0:
+        logger.error(f"no {kind} backup zip was copied")
         return False
 
     return True
+
+
+def copy_file(src: str, dest: str) -> str | None:
+    # the folder is writable by the app container and isabak runs as root, so a
+    # symlink there could make root copy any file on the host into the backup.
+    # opened once without following links, checked and read through that one
+    # descriptor, so a link swapped in after a check is still refused
+    try:
+        fd = os_open(src, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+    except FileNotFoundError:
+        return "missing"
+    except OSError as e:
+        if e.errno == ELOOP:
+            return "is a symlink, refusing to follow it"
+        raise
+    with open(fd, "rb") as source:
+        info = fstat(source.fileno())
+        if not S_ISREG(info.st_mode):
+            return "is not a regular file"
+        with open(dest, "wb") as target:
+            copyfileobj(source, target)
+    # what copy2 kept: permission bits and times, taken from the descriptor
+    chmod(dest, S_IMODE(info.st_mode))
+    utime(dest, ns=(info.st_atime_ns, info.st_mtime_ns))
+    return None
