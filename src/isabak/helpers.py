@@ -8,8 +8,13 @@ logger = get_logger(__name__)
 
 # how long a process gets to exit after SIGTERM before it is killed
 stop_grace_seconds = 60
-# terminal escape sequences and control characters, except tab and newline
-control_characters = re_compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|[\x00-\x08\x0b-\x1f\x7f]")
+# terminal escape sequences (CSI, and OSC/DCS/APC/PM strings), C0 and C1 control
+# characters except tab and newline, and bidi controls that reorder shown text
+control_characters = re_compile(
+    r"\x1b\[[0-9;?]*[ -/]*[@-~]"
+    r"|\x1b[\]P_^].*?(?:\x07|\x1b\\)"
+    r"|[\x00-\x08\x0b-\x1f\x7f-\x9f‎‏‪-‮⁦-⁩]"
+)
 
 
 def strip_control_characters(text: str) -> str:

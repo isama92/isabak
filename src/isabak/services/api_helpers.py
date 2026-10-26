@@ -45,14 +45,12 @@ def build_json_headers(auth: dict[str, str]) -> dict[str, str]:
 
 def describe_response(response, headers: dict[str, str]) -> str:
     # "code 500: <the reason the app gave>", or just "code 500" without a body
-    reason = response_reason(response)
-    for secret in api_secrets(headers):
-        reason = reason.replace(secret, "***")
+    reason = response_reason(response, api_secrets(headers))
     code = f"code {response.status_code}"
     return f"{code}: {reason}" if reason else code
 
 
-def response_reason(response) -> str:
+def response_reason(response, secrets: list[str]) -> str:
     try:
         body = response.json()
     except ValueError:
@@ -63,19 +61,27 @@ def response_reason(response) -> str:
     if isinstance(body, dict):
         text = next((str(body[f]) for f in reason_fields if body.get(f)), "")
     else:
-        text = html_tags.sub(" ", response.text or "")
-    # one line, no terminal escapes: it ends up in a log line and an email
+        text = response.text or ""
+    # masked on the raw text, before anything can cut a key in half
+    for secret in secrets:
+        text = text.replace(secret, "***")
+    text = html_tags.sub(" ", text)
+    # one line, printable characters only (no escapes, no bidi controls that
+    # reorder what the mail shows): it ends up in a log line and an email
     text = " ".join(strip_control_characters(text).split())
+    text = "".join(char for char in text if char.isprintable())
     if len(text) > reason_max_chars:
         text = text[:reason_max_chars] + "..."
     return text
 
 
 def api_secrets(headers: dict[str, str]) -> list[str]:
-    # the api key, in case an app echoes the request back in its error
-    secrets = [headers.get("X-Api-Key", "")]
-    secrets.append(headers.get("Authorization", "").partition("Token=")[2])
-    return [secret for secret in secrets if secret]
+    # the api key, in case an app echoes the request back in its error: every
+    # header value except the fixed json ones, plus the token inside
+    # "MediaBrowser Token=...", longest first so a whole value goes before a part
+    values = [v for k, v in headers.items() if k not in ("Accept", "Content-Type")]
+    secrets = values + [v.partition("Token=")[2] for v in values]
+    return sorted({s for s in secrets if s}, key=len, reverse=True)
 
 
 def list_backup_files(folder: str) -> set[str] | None:
