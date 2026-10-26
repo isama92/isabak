@@ -10,6 +10,7 @@ from src.isabak.services.api_helpers import (
     build_host_url,
     build_json_headers,
     copy_backup,
+    describe_response,
     list_backup_files,
 )
 
@@ -93,9 +94,8 @@ def delete_old_backups(base_url: str, headers: dict, keep: list[str]):
             f"{base_url}/system/backup", headers=headers, timeout=30
         )
         if response.status_code != 200:
-            logger.error(
-                f"backups list request failed with code {response.status_code}"
-            )
+            reason = describe_response(response, headers)
+            logger.error(f"backups list request failed with {reason}")
             return
         backups = response.json()
     except (requests.RequestException, ValueError) as e:
@@ -121,8 +121,8 @@ def delete_old_backups(base_url: str, headers: dict, keep: list[str]):
             logger.error(f"deletion of backup '{backup_id}' failed: {e}")
             return
         if response.status_code != 200:
-            code = response.status_code
-            logger.error(f"deletion of backup '{backup_id}' failed with code {code}")
+            reason = describe_response(response, headers)
+            logger.error(f"deletion of backup '{backup_id}' failed with {reason}")
             return
         deleted += 1
 
@@ -142,7 +142,8 @@ def create_backup(base_url: str, headers: dict) -> tuple[bool, int | None]:
         return False, None
 
     if response.status_code != 201:
-        logger.error(f"backup creation request failed with code {response.status_code}")
+        reason = describe_response(response, headers)
+        logger.error(f"backup creation request failed with {reason}")
         return False, None
 
     try:
@@ -166,9 +167,8 @@ def wait_command(base_url: str, headers: dict, command_id: int) -> bool:
             logger.error(f"backup command status request failed: {e}")
             return False
         if not response.ok:
-            logger.error(
-                f"backup command status request failed with code {response.status_code}"
-            )
+            reason = describe_response(response, headers)
+            logger.error(f"backup command status request failed with {reason}")
             return False
         if status == "completed":
             return True

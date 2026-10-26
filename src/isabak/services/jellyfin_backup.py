@@ -11,6 +11,7 @@ from src.isabak.services.api_helpers import (
     build_host_url,
     build_json_headers,
     copy_backup,
+    describe_response,
     list_backup_files,
 )
 
@@ -110,7 +111,8 @@ def create_backup(base_url: str, headers: dict, body: dict) -> bool:
         return False
 
     if response.status_code != 200:
-        logger.error(f"backup creation request failed with code {response.status_code}")
+        reason = describe_response(response, headers)
+        logger.error(f"backup creation request failed with {reason}")
         return False
 
     return True

@@ -10,8 +10,10 @@ from os import (
     utime,
 )
 from os.path import isfile as path_isfile, join as path_join
+from re import compile as re_compile
 from shutil import copyfileobj
 from stat import S_IMODE, S_ISREG
+from src.isabak.helpers import strip_control_characters
 from src.isabak.logs import get_logger
 from src.isabak.verify import verify_zip
 
@@ -19,6 +21,12 @@ from src.isabak.verify import verify_zip
 # over its api and then copy the new file from the app's backup folder
 
 logger = get_logger(__name__)
+
+# enough for the reason an app gave (e.g. "database disk image is malformed")
+# without pasting a whole error page into the cron mail
+reason_max_chars = 300
+html_tags = re_compile(r"<[^>]+>")
+reason_fields = ("message", "detail", "title", "errorMessage", "description")
 
 
 def build_host_url(domain: str, subdomain: str | None, secure: bool) -> str:
@@ -33,6 +41,41 @@ def build_json_headers(auth: dict[str, str]) -> dict[str, str]:
         "Content-Type": "application/json",
         **auth,
     }
+
+
+def describe_response(response, headers: dict[str, str]) -> str:
+    # "code 500: <the reason the app gave>", or just "code 500" without a body
+    reason = response_reason(response)
+    for secret in api_secrets(headers):
+        reason = reason.replace(secret, "***")
+    code = f"code {response.status_code}"
+    return f"{code}: {reason}" if reason else code
+
+
+def response_reason(response) -> str:
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    # *arr answers {"message": ...} or a list of validation errors
+    if isinstance(body, list) and body and isinstance(body[0], dict):
+        body = body[0]
+    if isinstance(body, dict):
+        text = next((str(body[f]) for f in reason_fields if body.get(f)), "")
+    else:
+        text = html_tags.sub(" ", response.text or "")
+    # one line, no terminal escapes: it ends up in a log line and an email
+    text = " ".join(strip_control_characters(text).split())
+    if len(text) > reason_max_chars:
+        text = text[:reason_max_chars] + "..."
+    return text
+
+
+def api_secrets(headers: dict[str, str]) -> list[str]:
+    # the api key, in case an app echoes the request back in its error
+    secrets = [headers.get("X-Api-Key", "")]
+    secrets.append(headers.get("Authorization", "").partition("Token=")[2])
+    return [secret for secret in secrets if secret]
 
 
 def list_backup_files(folder: str) -> set[str] | None:
